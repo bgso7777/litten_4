@@ -1,6 +1,6 @@
 # 리튼 (Litten)
 
-**크로스 플랫폼 통합 노트 앱** - 음성, 텍스트, 필기를 하나로
+**크로스 플랫폼 통합 노트 앱** - 듣기, 쓰기를 하나로
 
 ---
 
@@ -24,7 +24,7 @@
 - **지능형 테마 시스템**: 사용자의 언어/국가에 따라 5가지 테마(Classic Blue, Dark Mode, Nature Green, Sunset Orange, Monochrome Grey) 중 해당 지역 선호 테마로 자동 설정
 - **크로스 플랫폼**: Android, iOS, Web, Desktop 모두 지원
 - **직관적 UI**: 언어와 문화에 관계없이 쉬운 사용
-- **3단계 구독 모델**: 무료(제한), 스탠다드(제한 해제), 프리미엄(웹 편집)
+- **3단계 구독 모델**: 무료(제한), 스탠다드(제한 해제), 프리미엄(서버 파일 보관)
 
 ---
 
@@ -33,11 +33,11 @@
 **📋 기획 단계** - Flutter 앱 개발 준비 중
 
 ### 완료된 작업
-- [x] 핵심 개념 정의
-- [x] 기능 명세 작성
-- [x] UI/UX 설계
-- [x] 기술 스택 결정
-- [x] 개발 가이드라인 수립
+- [ ] 핵심 개념 정의
+- [ ] 기능 명세 작성
+- [ ] UI/UX 설계
+- [ ] 기술 스택 결정
+- [ ] 개발 가이드라인 수립
 
 ### 다음 단계
 - [ ] Flutter 프로젝트 생성
@@ -58,7 +58,7 @@
 ### Backend (계획)
 - **Framework**: Java Spring Boot
 - **언어**: Java 17+
-- **데이터베이스**: PostgreSQL
+- **데이터베이스**: mariaDB
 - **파일 저장소**: AWS S3
 - **API**: RESTful API
 - **인증**: JWT + 앱 고유 ID
@@ -74,16 +74,16 @@
 ## 📂 프로젝트 구조
 
 ```
-litten_ex2/
+litten_ex4/
 ├── 📄 README.md           # 프로젝트 소개 (현재 파일)
 ├── 📄 CLAUDE.md           # 개발 가이드라인
-├── 📁 docs/               # 기획 문서들
 │   ├── 0_history.txt      # 프로젝트 히스토리
 │   ├── 1_idea.txt         # 아이디어 정리
 │   ├── 2_planning.txt     # 기획 내용
 │   ├── 3_design_frontend.txt  # 프론트엔드 설계
 │   └── 4_design_backend.txt   # 백엔드 설계
-└── 📁 litten_app/          # Flutter 앱 (예정)
+│── 📁 backend/           # 백엔드 (예정)
+└── 📁 frontend/          # Flutter 앱 및 웹 (예정)
 ```
 
 ---
@@ -154,7 +154,7 @@ flutter run
 ## 📋 로드맵
 
 ### 2024 Q4 (현재)
-- [x] 프로젝트 기획 완료
+- [ ] 프로젝트 기획 완료
 - [ ] Flutter 프로젝트 생성
 - [ ] MVP 개발 시작
 
