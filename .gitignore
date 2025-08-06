@@ -130,3 +130,4 @@ flutter/
 *.tar.gz
 *.tar.xz
 /liten_app/cmake-3.29.0-linux-x86_64
+./litten_app
