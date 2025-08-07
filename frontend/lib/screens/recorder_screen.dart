@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/note_provider.dart';
+import '../services/audio_service.dart';
+import '../models/note_model.dart';
 import '../l10n/app_localizations.dart';
 import '../widgets/empty_state_widget.dart';
 
@@ -12,251 +14,111 @@ class RecorderScreen extends StatefulWidget {
 }
 
 class _RecorderScreenState extends State<RecorderScreen> {
+  final AudioService _audioService = AudioService();
+  
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
+    debugPrint('RecorderScreen build() 호출됨');
     
     return Consumer<NoteProvider>(
       builder: (context, noteProvider, child) {
-        // 선택된 노트가 있는지 확인
-        if (noteProvider.selectedNote == null) {
-          return EmptyStateWidget(
-            icon: Icons.folder_open,
-            title: '리튼을 선택하세요',
-            subtitle: '홈 탭에서 리튼을 선택하거나\n새로 생성해주세요',
-            actionText: '홈으로 이동',
-            onActionPressed: () {
-              // 홈 탭으로 이동하는 로직은 MainTabScreen에서 처리
-            },
-          );
-        }
-        
-        final note = noteProvider.selectedNote!;
-        final audioFiles = note.files.where((file) => file.type.name == 'audio').toList();
+        final audioService = context.watch<AudioService>();
         
         return Scaffold(
-          body: Column(
-            children: [
-              // 선택된 노트 정보
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
-                  border: Border(
-                    bottom: BorderSide(
-                      color: Theme.of(context).dividerColor,
-                      width: 0.5,
-                    ),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      note.title,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (note.description.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        note.description,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              
-              // 오디오 파일 목록
-              Expanded(
-                child: audioFiles.isEmpty
-                    ? const EmptyStateWidget(
-                        icon: Icons.mic_none,
-                        title: '녹음된 오디오가 없습니다',
-                        subtitle: '하단의 녹음 버튼을 눌러\n첫 번째 녹음을 시작하세요',
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: audioFiles.length,
-                        itemBuilder: (context, index) {
-                          final file = audioFiles[index];
-                          return Card(
-                            child: ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: Colors.red.withOpacity(0.1),
-                                child: const Icon(
-                                  Icons.audio_file,
-                                  color: Colors.red,
-                                ),
-                              ),
-                              title: Text(file.name),
-                              subtitle: Text(
-                                '${_formatDuration(file.audioDuration)} • ${_formatDate(file.createdAt)}',
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.play_arrow),
-                                    onPressed: () => _playAudio(file.id),
-                                  ),
-                                  PopupMenuButton<String>(
-                                    onSelected: (value) {
-                                      if (value == 'delete') {
-                                        _deleteAudioFile(file.id);
-                                      }
-                                    },
-                                    itemBuilder: (context) => [
-                                      const PopupMenuItem(
-                                        value: 'delete',
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.delete, color: Colors.red),
-                                            SizedBox(width: 8),
-                                            Text('삭제'),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-              
-              // 녹음 컨트롤 패널
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface,
-                  border: Border(
-                    top: BorderSide(
-                      color: Theme.of(context).dividerColor,
-                      width: 0.5,
-                    ),
-                  ),
-                ),
-                child: Column(
-                  children: [
-                    // 녹음 시간 표시
-                    Text(
-                      '00:00',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // 녹음 버튼들
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        // 일시정지 버튼
-                        FloatingActionButton(
-                          heroTag: "pause",
-                          onPressed: null, // TODO: 일시정지 기능
-                          backgroundColor: Colors.grey[300],
-                          child: const Icon(Icons.pause, color: Colors.grey),
-                        ),
-                        
-                        // 메인 녹음 버튼
-                        FloatingActionButton.large(
-                          heroTag: "record",
-                          onPressed: _startRecording,
-                          backgroundColor: Colors.red,
-                          child: const Icon(Icons.mic, color: Colors.white, size: 32),
-                        ),
-                        
-                        // 정지 버튼
-                        FloatingActionButton(
-                          heroTag: "stop",
-                          onPressed: null, // TODO: 정지 기능
-                          backgroundColor: Colors.grey[300],
-                          child: const Icon(Icons.stop, color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // 상태 표시
-                    Text(
-                      '녹음을 시작하려면 마이크 버튼을 누르세요',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[600],
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          body: const Center(
+            child: Text(
+              '녹음된 오디오가 없습니다\n하단의 +듣기 버튼을 눌러\n첫 번째 녹음을 시작하세요',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16),
+            ),
+          ),
+          floatingActionButton: FloatingActionButton.extended(
+            onPressed: () => _startRecording(audioService, noteProvider),
+            icon: Icon(audioService.recordingState == RecordingState.recording 
+                ? Icons.stop 
+                : Icons.mic),
+            label: Text(audioService.recordingState == RecordingState.recording 
+                ? '녹음 정지' 
+                : '+듣기'),
+            backgroundColor: audioService.recordingState == RecordingState.recording 
+                ? Colors.red 
+                : null,
           ),
         );
       },
     );
   }
-  
-  void _startRecording() {
-    // TODO: 녹음 시작 기능 구현
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('녹음 기능은 곧 구현될 예정입니다'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-  
-  void _playAudio(String fileId) {
-    // TODO: 오디오 재생 기능 구현
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('재생 기능은 곧 구현될 예정입니다'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-  
-  void _deleteAudioFile(String fileId) {
-    // TODO: 오디오 파일 삭제 기능 구현
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('파일 삭제 기능은 곧 구현될 예정입니다'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-  
-  String _formatDuration(double seconds) {
-    final duration = Duration(seconds: seconds.round());
-    final minutes = duration.inMinutes;
-    final remainingSeconds = duration.inSeconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
-  }
-  
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
+
+  // 녹음 시작 메서드
+  Future<void> _startRecording(AudioService audioService, NoteProvider noteProvider) async {
+    debugPrint('_startRecording 호출됨');
     
-    if (difference.inDays == 0) {
-      return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-    } else if (difference.inDays == 1) {
-      return '어제';
-    } else {
-      return '${date.month}/${date.day}';
+    try {
+      // 선택된 노트가 없으면 첫 번째 노트를 선택
+      if (noteProvider.selectedNote == null && noteProvider.notes.isNotEmpty) {
+        noteProvider.selectNote(noteProvider.notes.first.id);
+      }
+      
+      // 노트가 없으면 에러 메시지 표시
+      if (noteProvider.selectedNote == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('먼저 홈 탭에서 리튼을 생성해주세요'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+
+      // 녹음 상태에 따라 동작 결정
+      if (audioService.recordingState == RecordingState.idle) {
+        // 새 녹음 시작
+        final success = await audioService.startRecording();
+        if (success && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('녹음을 시작했습니다'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('녹음을 시작할 수 없습니다. 마이크 권한을 확인해주세요.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } else if (audioService.recordingState == RecordingState.recording) {
+        // 녹음 정지 및 저장
+        final note = noteProvider.selectedNote!;
+        final audioFile = await audioService.stopRecording(note.id);
+        
+        if (audioFile != null) {
+          final success = await noteProvider.addFileToNote(note.id, audioFile);
+          if (success && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('녹음이 저장되었습니다: ${audioFile.name}'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('녹음 오류: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('녹음 중 오류가 발생했습니다: $e'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 }

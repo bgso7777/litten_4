@@ -418,8 +418,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Widget _buildThemeSelectionPage() {
-    return Consumer<ThemeProvider>(
-      builder: (context, themeProvider, child) {
+    return Consumer2<ThemeProvider, LocaleProvider>(
+      builder: (context, themeProvider, localeProvider, child) {
+        final currentLanguage = localeProvider.locale.languageCode;
+        final recommendedTheme = themeProvider.getRecommendedThemeForLanguage(currentLanguage);
+        
         return Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
@@ -451,9 +454,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 ],
               ),
               const SizedBox(height: 20),
-              const Text(
-                '앱의 색상 테마를 선택해주세요.\n언어에 따라 자동으로 추천 테마가 설정됩니다.',
-                style: TextStyle(
+              Text(
+                '앱의 색상 테마를 선택해주세요.\n현재 언어(${localeProvider.getLanguageDisplayName(currentLanguage)})에 따라 "${themeProvider.getThemeDisplayName(recommendedTheme)}" 테마가 추천됩니다.',
+                style: const TextStyle(
                   fontSize: 16,
                   color: Colors.grey,
                 ),
@@ -463,15 +466,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               Expanded(
                 child: ListView(
                   children: [
-                    _buildThemeItem('classic_blue', 'Classic Blue', '클래식한 파란색 테마 (아시아권 추천)', const Color(0xFF2196F3), themeProvider),
+                    _buildThemeItem('classic_blue', 'Classic Blue', '클래식한 파란색 테마 (아시아권 추천)', const Color(0xFF2196F3), themeProvider, recommendedTheme),
                     const SizedBox(height: 16),
-                    _buildThemeItem('dark_mode', 'Dark Mode', '어두운 테마 (유럽권 추천)', const Color(0xFF212121), themeProvider),
+                    _buildThemeItem('dark_mode', 'Dark Mode', '어두운 테마 (유럽권 추천)', const Color(0xFF212121), themeProvider, recommendedTheme),
                     const SizedBox(height: 16),
-                    _buildThemeItem('nature_green', 'Nature Green', '자연친화적 녹색 테마 (아메리카권 추천)', const Color(0xFF4CAF50), themeProvider),
+                    _buildThemeItem('nature_green', 'Nature Green', '자연친화적 녹색 테마 (아메리카권 추천)', const Color(0xFF4CAF50), themeProvider, recommendedTheme),
                     const SizedBox(height: 16),
-                    _buildThemeItem('sunset_orange', 'Sunset Orange', '따뜻한 주황색 테마 (중동/아프리카권 추천)', const Color(0xFFFF9800), themeProvider),
+                    _buildThemeItem('sunset_orange', 'Sunset Orange', '따뜻한 주황색 테마 (중동/아프리카권 추천)', const Color(0xFFFF9800), themeProvider, recommendedTheme),
                     const SizedBox(height: 16),
-                    _buildThemeItem('monochrome_grey', 'Monochrome Grey', '모노크롬 회색 테마 (기타 지역 추천)', const Color(0xFF757575), themeProvider),
+                    _buildThemeItem('monochrome_grey', 'Monochrome Grey', '모노크롬 회색 테마 (기타 지역 추천)', const Color(0xFF757575), themeProvider, recommendedTheme),
                   ],
                 ),
               ),
@@ -505,8 +508,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Widget _buildThemeItem(String themeId, String title, String description, Color color, ThemeProvider themeProvider) {
+  Widget _buildThemeItem(String themeId, String title, String description, Color color, ThemeProvider themeProvider, String recommendedTheme) {
     final isSelected = themeProvider.currentThemeName == themeId;
+    final isRecommended = themeId == recommendedTheme;
     
     return InkWell(
       onTap: () {
@@ -517,11 +521,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           border: Border.all(
-            color: isSelected ? color : Colors.grey.withOpacity(0.3),
-            width: isSelected ? 2 : 1,
+            color: isSelected ? color : (isRecommended ? color.withOpacity(0.6) : Colors.grey.withOpacity(0.3)),
+            width: isSelected ? 2 : (isRecommended ? 2 : 1),
           ),
           borderRadius: BorderRadius.circular(12),
-          color: isSelected ? color.withOpacity(0.1) : null,
+          color: isSelected ? color.withOpacity(0.1) : (isRecommended ? color.withOpacity(0.05) : null),
         ),
         child: Row(
           children: [
@@ -532,19 +536,48 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 color: color,
                 borderRadius: BorderRadius.circular(8),
               ),
+              child: isRecommended && !isSelected
+                  ? const Icon(
+                      Icons.star,
+                      color: Colors.white,
+                      size: 20,
+                    )
+                  : null,
             ),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                      color: isSelected ? color : null,
-                    ),
+                  Row(
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: isSelected || isRecommended ? FontWeight.w600 : FontWeight.normal,
+                          color: isSelected ? color : (isRecommended ? color.withOpacity(0.8) : null),
+                        ),
+                      ),
+                      if (isRecommended && !isSelected) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: color.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '추천',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: color,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -562,6 +595,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 Icons.check_circle,
                 color: color,
                 size: 24,
+              )
+            else if (isRecommended)
+              Icon(
+                Icons.star_border,
+                color: color,
+                size: 24,
               ),
           ],
         ),
@@ -570,8 +609,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   void _completeOnboarding() async {
-    // onboarding 완료 표시 저장
+    // onboarding 완료 및 첫 실행 완료 표시 저장
     await PreferencesService.setBool('onboarding_completed', true);
+    await PreferencesService.setFirstLaunchCompleted();
     
     if (mounted) {
       Navigator.of(context).pushReplacement(

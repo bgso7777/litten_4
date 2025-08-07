@@ -6,6 +6,7 @@ import '../services/preferences_service.dart';
 import '../widgets/ad_banner_widget.dart';
 import 'home_screen.dart';
 import 'recorder_screen.dart';
+import 'recorder_screen_simple.dart';
 import 'writer_screen.dart';
 import 'settings_screen.dart';
 

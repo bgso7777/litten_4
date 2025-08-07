@@ -119,11 +119,15 @@ class NoteListItem extends StatelessWidget {
       ));
     }
     
+    if (badges.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: badges
           .expand((badge) => [badge, const SizedBox(width: 4)])
-          .take(badges.length * 2 - 1)
+          .take((badges.length * 2 - 1).clamp(0, badges.length * 2))
           .toList(),
     );
   }

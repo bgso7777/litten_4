@@ -55,15 +55,19 @@ class LocaleProvider extends ChangeNotifier {
   
   // 언어에 따른 기본 테마 설정
   Future<void> _setDefaultThemeForLanguage(String languageCode) async {
+    // 첫 실행 시에만 언어에 따른 테마를 자동 설정
+    final isFirstLaunch = PreferencesService.isFirstLaunch();
     final savedTheme = PreferencesService.getThemeName();
     
-    // 이미 사용자가 테마를 설정했다면 변경하지 않음
-    if (savedTheme != null) return;
+    // 이미 사용자가 테마를 설정했거나 첫 실행이 아니면 변경하지 않음
+    if (savedTheme != null && !isFirstLaunch) return;
     
     final defaultTheme = AppConfig.languageThemeMapping[languageCode] 
         ?? AppConfig.defaultTheme;
     
     await PreferencesService.setThemeName(defaultTheme);
+    
+    debugPrint('언어별 테마 자동 설정: $languageCode -> $defaultTheme');
   }
   
   // 언어 변경

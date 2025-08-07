@@ -20,10 +20,26 @@ class ThemeProvider extends ChangeNotifier {
     
     if (savedTheme != null) {
       _currentThemeName = savedTheme;
+    } else {
+      // 저장된 테마가 없으면 현재 언어에 맞는 기본 테마 적용
+      await _setLanguageBasedTheme();
     }
     
     _themeMode = savedThemeMode;
     notifyListeners();
+  }
+  
+  // 현재 언어에 따른 기본 테마 설정
+  Future<void> _setLanguageBasedTheme() async {
+    final currentLanguage = PreferencesService.getLanguageCode();
+    
+    if (currentLanguage != null) {
+      final languageTheme = AppConfig.languageThemeMapping[currentLanguage] 
+          ?? AppConfig.defaultTheme;
+      
+      _currentThemeName = languageTheme;
+      await PreferencesService.setThemeName(languageTheme);
+    }
   }
   
   // 테마 변경
@@ -211,6 +227,23 @@ class ThemeProvider extends ChangeNotifier {
     return themeNames[themeName] ?? themeName;
   }
   
+  // 언어 변경 시 테마 자동 업데이트 (LocaleProvider에서 호출)
+  Future<void> updateThemeForLanguage(String languageCode) async {
+    final userHasCustomTheme = PreferencesService.getThemeName() != null;
+    
+    // 사용자가 수동으로 테마를 설정한 적이 있다면 변경하지 않음
+    if (userHasCustomTheme) return;
+    
+    final languageTheme = AppConfig.languageThemeMapping[languageCode] 
+        ?? AppConfig.defaultTheme;
+    
+    if (_currentThemeName != languageTheme) {
+      _currentThemeName = languageTheme;
+      await PreferencesService.setThemeName(languageTheme);
+      notifyListeners();
+    }
+  }
+  
   // 사용 가능한 테마 목록
   List<String> get availableThemes => [
     'classic_blue',
@@ -219,4 +252,9 @@ class ThemeProvider extends ChangeNotifier {
     'sunset_orange',
     'monochrome_grey',
   ];
+  
+  // 현재 언어에 대한 추천 테마 가져오기
+  String getRecommendedThemeForLanguage(String languageCode) {
+    return AppConfig.languageThemeMapping[languageCode] ?? AppConfig.defaultTheme;
+  }
 }

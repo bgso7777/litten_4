@@ -3,9 +3,11 @@ import 'package:provider/provider.dart';
 import '../providers/locale_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/note_provider.dart';
+import '../services/subscription_service.dart';
 import '../l10n/app_localizations.dart';
 import '../config/app_config.dart';
 import '../services/preferences_service.dart';
+import 'subscription_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -32,20 +34,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   
   @override
   Widget build(BuildContext context) {
-    return Consumer3<LocaleProvider, ThemeProvider, NoteProvider>(
-      builder: (context, localeProvider, themeProvider, noteProvider, child) {
-        final stats = noteProvider.usageStats;
+    return Consumer3<LocaleProvider, ThemeProvider, SubscriptionService>(
+      builder: (context, localeProvider, themeProvider, subscriptionService, child) {
         
         return Scaffold(
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
               // 구독 정보 카드
-              _buildSubscriptionCard(),
-              const SizedBox(height: 16),
-              
-              // 사용량 통계 카드
-              _buildUsageStatsCard(stats),
+              _buildSubscriptionCard(subscriptionService),
               const SizedBox(height: 16),
               
               // 앱 설정 섹션
@@ -80,103 +77,132 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
   
-  Widget _buildSubscriptionCard() {
+  Widget _buildSubscriptionCard(SubscriptionService subscriptionService) {
+    final currentType = subscriptionService.currentType;
+    final subscription = subscriptionService.currentSubscription;
+    
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  _subscriptionType == 'free' ? Icons.free_breakfast : Icons.star,
-                  color: _subscriptionType == 'free' ? Colors.grey : Colors.amber,
+      elevation: 4,
+      child: InkWell(
+        onTap: () => _navigateToSubscription(),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    _getSubscriptionIcon(currentType),
+                    size: 28,
+                    color: _getSubscriptionColor(currentType),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          currentType.displayName,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          currentType.description,
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(
+                    Icons.chevron_right,
+                    color: Colors.grey,
+                  ),
+                ],
+              ),
+              
+              if (subscription != null && !subscriptionService.isFreePlan) ...[
+                const SizedBox(height: 12),
+                const Divider(),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '상태: ${subscription.isValid ? '활성' : '만료됨'}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: subscription.isValid ? Colors.green : Colors.red,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (subscription.daysRemaining != null)
+                      Text(
+                        '${subscription.daysRemaining}일 남음',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  _getSubscriptionName(_subscriptionType),
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+              ],
+              
+              if (subscriptionService.isFreePlan) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () => _navigateToSubscription(),
+                    icon: const Icon(Icons.upgrade, size: 18),
+                    label: const Text('업그레이드'),
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _getSubscriptionDescription(_subscriptionType),
-              style: TextStyle(
-                color: Colors.grey[600],
-                fontSize: 14,
-              ),
-            ),
-            if (_subscriptionType == 'free') ...[
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: _showUpgradeDialog,
-                  child: const Text('스탠다드로 업그레이드'),
+              
+              if (subscriptionService.needsRenewalNotification) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.warning,
+                        size: 16,
+                        color: Colors.orange,
+                      ),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          '구독 갱신이 필요합니다',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.orange,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildUsageStatsCard(Map<String, int> stats) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '사용량 통계',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(child: _buildStatItem('노트', '${stats['totalNotes']}', '${AppConfig.maxNotesForFree}')),
-                Expanded(child: _buildStatItem('오디오', '${stats['totalAudioFiles']}', '∞')),
-                Expanded(child: _buildStatItem('텍스트', '${stats['totalTextFiles']}', '∞')),
-                Expanded(child: _buildStatItem('필기', '${stats['totalHandwritingFiles']}', '∞')),
               ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
   
-  Widget _buildStatItem(String label, String current, String max) {
-    return Column(
-      children: [
-        Text(
-          _subscriptionType == 'free' && max != '∞' ? '$current/$max' : current,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
-          ),
-        ),
-      ],
-    );
-  }
   
   Widget _buildSectionTitle(String title) {
     return Padding(
@@ -193,11 +219,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
   
   Widget _buildSettingsList(List<Widget> items) {
+    if (items.isEmpty) {
+      return const Card(
+        child: SizedBox.shrink(),
+      );
+    }
+    
     return Card(
       child: Column(
         children: items
             .expand((item) => [item, const Divider(height: 1)])
-            .take(items.length * 2 - 1)
+            .take((items.length * 2 - 1).clamp(0, items.length * 2))
             .toList(),
       ),
     );
@@ -426,39 +458,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
   
-  void _showUpgradeDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('스탠다드로 업그레이드'),
-        content: const Text(
-          '스탠다드 버전의 기능:\n\n'
-          '• 무제한 리튼 생성\n'
-          '• 무제한 파일 저장\n'
-          '• 광고 제거\n'
-          '• 클라우드 동기화\n\n'
-          '월 4,900원',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('나중에'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('업그레이드 기능은 곧 제공될 예정입니다'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
-            child: const Text('업그레이드'),
-          ),
-        ],
+  void _navigateToSubscription() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const SubscriptionScreen(),
       ),
     );
+  }
+
+  IconData _getSubscriptionIcon(dynamic type) {
+    if (type.toString().contains('free')) return Icons.free_breakfast;
+    if (type.toString().contains('standard')) return Icons.star;
+    if (type.toString().contains('premium')) return Icons.diamond;
+    return Icons.free_breakfast;
+  }
+
+  Color _getSubscriptionColor(dynamic type) {
+    if (type.toString().contains('free')) return Colors.grey;
+    if (type.toString().contains('standard')) return Colors.orange;
+    if (type.toString().contains('premium')) return Colors.purple;
+    return Colors.grey;
   }
   
   void _showBackupDialog() {

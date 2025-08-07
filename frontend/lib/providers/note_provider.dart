@@ -1,14 +1,19 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/note_model.dart';
 import '../config/app_config.dart';
 import '../services/local_storage_service.dart';
+import '../services/web_storage_service.dart';
 
 class NoteProvider extends ChangeNotifier {
   final List<NoteModel> _notes = [];
   final LocalStorageService _storageService = LocalStorageService();
   NoteModel? _selectedNote;
   bool _isLoading = false;
+  
+  // 웹 환경 여부
+  bool get _isWeb => kIsWeb;
   
   // Getters
   List<NoteModel> get notes => _notes;
@@ -29,9 +34,17 @@ class NoteProvider extends ChangeNotifier {
     notifyListeners();
     
     try {
-      final loadedNotes = await _storageService.loadNotes();
+      final loadedNotes = _isWeb 
+          ? await WebStorageService.loadNotes()
+          : await _storageService.loadNotes();
+      
       _notes.clear();
       _notes.addAll(loadedNotes);
+      
+      // 첫 실행 시 샘플 리튼 생성
+      if (_notes.isEmpty) {
+        await _createSampleNotes();
+      }
       
       // 최신 순으로 정렬
       _notes.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -43,10 +56,33 @@ class NoteProvider extends ChangeNotifier {
     }
   }
   
+  // 샘플 노트 생성
+  Future<void> _createSampleNotes() async {
+    try {
+      // 첫 번째 샘플 노트: 강의-화-교양
+      await createNote(
+        '강의-화-교양', 
+        description: '교양 강의 노트 공간입니다. 음성 녹음과 필기를 함께 활용해보세요.',
+        bypassLimit: true,
+      );
+      
+      // 두 번째 샘플 노트: 회의-주간
+      await createNote(
+        '회의-주간', 
+        description: '주간 회의 내용을 기록하는 공간입니다. 중요한 결정사항을 놓치지 마세요.',
+        bypassLimit: true,
+      );
+      
+      debugPrint('샘플 노트 생성 완료: 강의-화-교양, 회의-주간');
+    } catch (e) {
+      debugPrint('샘플 노트 생성 실패: $e');
+    }
+  }
+  
   // 노트 생성
-  Future<NoteModel?> createNote(String title, {String description = ''}) async {
-    // 무료 버전 제한 확인
-    if (_notes.length >= AppConfig.maxNotesForFree) {
+  Future<NoteModel?> createNote(String title, {String description = '', bool bypassLimit = false}) async {
+    // 무료 버전 제한 확인 (샘플 노트 생성 시는 제외)
+    if (!bypassLimit && _notes.length >= AppConfig.maxNotesForFree) {
       throw Exception('무료 버전에서는 최대 ${AppConfig.maxNotesForFree}개의 노트만 생성할 수 있습니다.');
     }
     
@@ -60,7 +96,11 @@ class NoteProvider extends ChangeNotifier {
     );
     
     try {
-      await _storageService.saveNote(note);
+      if (_isWeb) {
+        await WebStorageService.saveNote(note);
+      } else {
+        await _storageService.saveNote(note);
+      }
       _notes.insert(0, note);
       notifyListeners();
       return note;
@@ -80,7 +120,11 @@ class NoteProvider extends ChangeNotifier {
     );
     
     try {
-      await _storageService.saveNote(noteWithUpdatedTime);
+      if (_isWeb) {
+        await WebStorageService.saveNote(noteWithUpdatedTime);
+      } else {
+        await _storageService.saveNote(noteWithUpdatedTime);
+      }
       _notes[index] = noteWithUpdatedTime;
       
       // 최신 순으로 정렬
@@ -104,7 +148,11 @@ class NoteProvider extends ChangeNotifier {
     if (index == -1) return false;
     
     try {
-      await _storageService.deleteNote(noteId);
+      if (_isWeb) {
+        await WebStorageService.deleteNote(noteId);
+      } else {
+        await _storageService.deleteNote(noteId);
+      }
       _notes.removeAt(index);
       
       if (_selectedNote?.id == noteId) {
@@ -173,7 +221,11 @@ class NoteProvider extends ChangeNotifier {
     
     try {
       // 파일 삭제
-      await _storageService.deleteFile(fileId);
+      if (_isWeb) {
+        await WebStorageService.deleteFile(fileId);
+      } else {
+        await _storageService.deleteFile(fileId);
+      }
       return await updateNote(updatedNote);
     } catch (e) {
       debugPrint('파일 삭제 실패: $e');

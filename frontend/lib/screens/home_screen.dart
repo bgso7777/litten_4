@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/note_provider.dart';
+import '../services/subscription_service.dart';
+import '../services/preferences_service.dart';
 import '../models/note_model.dart';
 import '../widgets/note_create_dialog.dart';
 import '../widgets/note_list_item.dart';
 import '../widgets/empty_state_widget.dart';
+import '../widgets/upgrade_dialog.dart';
+import '../config/app_config.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -25,8 +29,12 @@ class _HomeScreenState extends State<HomeScreen> {
   
   @override
   Widget build(BuildContext context) {
-    return Consumer<NoteProvider>(
-      builder: (context, noteProvider, child) {
+    return Consumer2<NoteProvider, SubscriptionService>(
+      builder: (context, noteProvider, subscriptionService, child) {
+        // 디버그 로그
+        debugPrint('HomeScreen build - notes count: ${noteProvider.notes.length}');
+        debugPrint('HomeScreen build - isLoading: ${noteProvider.isLoading}');
+        
         final filteredNotes = _searchQuery.isEmpty
             ? noteProvider.notes
             : noteProvider.searchNotes(_searchQuery);
@@ -34,6 +42,9 @@ class _HomeScreenState extends State<HomeScreen> {
         return Scaffold(
           body: Column(
             children: [
+              // 사용량 통계 카드 (상단에 표시)
+              _buildUsageStatsCard(noteProvider.usageStats, subscriptionService),
+              
               // 검색 바
               if (noteProvider.notes.isNotEmpty) _buildSearchBar(),
               
@@ -48,7 +59,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           floatingActionButton: FloatingActionButton.extended(
-            onPressed: () => _showCreateNoteDialog(context),
+            onPressed: () => _createNote(noteProvider, subscriptionService),
             icon: const Icon(Icons.add),
             label: const Text('리튼 생성'),
           ),
@@ -95,6 +106,9 @@ class _HomeScreenState extends State<HomeScreen> {
   
   // 빈 상태 위젯
   Widget _buildEmptyState(NoteProvider noteProvider) {
+    debugPrint('_buildEmptyState - notes.isEmpty: ${noteProvider.notes.isEmpty}');
+    debugPrint('_buildEmptyState - searchQuery: $_searchQuery');
+    
     if (noteProvider.notes.isEmpty) {
       // 노트가 아예 없을 때
       return const EmptyStateWidget(
@@ -120,6 +134,127 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
   
+  // 사용량 통계 카드
+  Widget _buildUsageStatsCard(Map<String, int> stats, SubscriptionService subscriptionService) {
+    try {
+      final subscriptionType = PreferencesService.getSubscriptionType();
+    
+    return Container(
+      margin: const EdgeInsets.all(16),
+      child: Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    '사용량 통계',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  if (subscriptionService.isFreePlan)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '무료 플랜',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.orange[700],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(child: _buildStatItem('리튼', '${stats['totalNotes']}', '${AppConfig.maxNotesForFree}', subscriptionService.isFreePlan)),
+                  Expanded(child: _buildStatItem('오디오', '${stats['totalAudioFiles']}', '∞', false)),
+                  Expanded(child: _buildStatItem('텍스트', '${stats['totalTextFiles']}', '∞', false)),
+                  Expanded(child: _buildStatItem('필기', '${stats['totalHandwritingFiles']}', '∞', false)),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    } catch (e) {
+      debugPrint('사용량 통계 카드 오류: $e');
+      return Container(
+        margin: const EdgeInsets.all(16),
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text('사용량 통계 로딩 중... ($e)'),
+          ),
+        ),
+      );
+    }
+  }
+  
+  Widget _buildStatItem(String label, String current, String max, bool showLimit) {
+    final currentNum = int.tryParse(current) ?? 0;
+    final maxNum = max == '∞' ? null : (int.tryParse(max) ?? 0);
+    final isNearLimit = showLimit && maxNum != null && currentNum >= maxNum * 0.8;
+    final isAtLimit = showLimit && maxNum != null && currentNum >= maxNum;
+    
+    return Column(
+      children: [
+        Text(
+          showLimit && max != '∞' ? '$current/$max' : current,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: isAtLimit 
+                ? Colors.red 
+                : isNearLimit 
+                    ? Colors.orange
+                    : Theme.of(context).colorScheme.primary,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+          ),
+        ),
+        if (isNearLimit && !isAtLimit)
+          Container(
+            margin: const EdgeInsets.only(top: 2),
+            height: 2,
+            width: 30,
+            decoration: BoxDecoration(
+              color: Colors.orange,
+              borderRadius: BorderRadius.circular(1),
+            ),
+          )
+        else if (isAtLimit)
+          Container(
+            margin: const EdgeInsets.only(top: 2),
+            height: 2,
+            width: 30,
+            decoration: BoxDecoration(
+              color: Colors.red,
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+      ],
+    );
+  }
+
   // 노트 목록 위젯
   Widget _buildNoteList(List<NoteModel> notes) {
     return RefreshIndicator(
@@ -143,8 +278,24 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
   
-  // 노트 생성 다이얼로그 표시
-  Future<void> _showCreateNoteDialog(BuildContext context) async {
+  // 노트 생성
+  Future<void> _createNote(NoteProvider noteProvider, SubscriptionService subscriptionService) async {
+    // 무료 버전 제한 확인
+    if (!subscriptionService.canUseFeature('unlimited_notes') &&
+        noteProvider.notes.length >= AppConfig.maxNotesForFree) {
+      UpgradeDialog.show(
+        context,
+        featureName: '무제한 리튼 생성',
+        specificBenefits: [
+          '무제한 리튼 생성',
+          '무제한 파일 저장',
+          '광고 완전 제거',
+          '클라우드 동기화',
+        ],
+      );
+      return;
+    }
+
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => const NoteCreateDialog(),
@@ -153,7 +304,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (result == true) {
       // 노트가 생성되면 새로고침
       if (mounted) {
-        await context.read<NoteProvider>().refresh();
+        await noteProvider.refresh();
       }
     }
   }

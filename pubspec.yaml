@@ -94,8 +94,7 @@ flutter:
   # 다국어 지원
   generate: true
 
-# 플랫폼별 설정
-flutter:
+  # 플랫폼별 설정
   platforms:
     android:
       package: com.liten.app

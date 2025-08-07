@@ -5,6 +5,9 @@ import 'config/app_config.dart';
 import 'providers/locale_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/note_provider.dart';
+import 'services/audio_service.dart';
+import 'services/drawing_service.dart';
+import 'services/subscription_service.dart';
 import 'screens/main_tab_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'services/preferences_service.dart';
@@ -27,8 +30,20 @@ class LittenApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
-        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProxyProvider<LocaleProvider, ThemeProvider>(
+          create: (_) => ThemeProvider(),
+          update: (context, localeProvider, themeProvider) {
+            // 언어가 변경될 때 테마도 자동으로 업데이트
+            if (themeProvider != null) {
+              themeProvider.updateThemeForLanguage(localeProvider.locale.languageCode);
+            }
+            return themeProvider ?? ThemeProvider();
+          },
+        ),
         ChangeNotifierProvider(create: (_) => NoteProvider()),
+        ChangeNotifierProvider(create: (_) => AudioService()),
+        ChangeNotifierProvider(create: (_) => DrawingService()),
+        ChangeNotifierProvider(create: (_) => SubscriptionService()),
       ],
       child: Consumer2<LocaleProvider, ThemeProvider>(
         builder: (context, localeProvider, themeProvider, child) {
@@ -78,13 +93,17 @@ class _AppInitializerState extends State<AppInitializer> {
     // onboarding 완료 여부 확인
     final bool onboardingCompleted = PreferencesService.getBool('onboarding_completed') ?? false;
     
+    // 웹 환경에서 디버깅을 위해 온보딩을 항상 표시 (개발 모드)
+    // 배포 시에는 이 라인을 제거하세요
+    final bool forceOnboarding = false;
+    
     // 짧은 지연 후 해당 화면으로 이동
     await Future.delayed(const Duration(milliseconds: 500));
     
     if (mounted) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (context) => onboardingCompleted 
+          builder: (context) => (onboardingCompleted && !forceOnboarding)
               ? const MainTabScreen() 
               : const OnboardingScreen(),
         ),
