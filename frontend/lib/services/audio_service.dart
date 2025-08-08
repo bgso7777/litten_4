@@ -8,6 +8,10 @@ import 'package:uuid/uuid.dart';
 import '../models/note_model.dart';
 import '../config/app_config.dart';
 import 'local_storage_service.dart';
+import 'web_audio_service.dart';
+
+// 웹에서 마이크 권한을 위한 추가 import
+import 'dart:html' as html;
 
 enum RecordingState {
   idle,
@@ -30,12 +34,48 @@ class AudioService extends ChangeNotifier {
   final AudioPlayer _player = AudioPlayer();
   final LocalStorageService _storageService = LocalStorageService();
   final Uuid _uuid = const Uuid();
+  
+  // 웹 전용 오디오 서비스
+  WebAudioService? _webAudioService;
 
   // 녹음 상태
   RecordingState _recordingState = RecordingState.idle;
   Duration _recordingDuration = Duration.zero;
   Timer? _recordingTimer;
   String? _currentRecordingPath;
+  
+  // 웹 환경에서 WebAudioService 초기화
+  WebAudioService get _webService {
+    if (kIsWeb && _webAudioService == null) {
+      _webAudioService = WebAudioService();
+      _webAudioService!.addListener(_onWebServiceStateChanged);
+    }
+    return _webAudioService!;
+  }
+  
+  // 웹 서비스 상태 변경 리스너
+  void _onWebServiceStateChanged() {
+    if (kIsWeb && _webAudioService != null) {
+      // 웹 서비스의 상태를 메인 서비스와 동기화
+      _recordingDuration = _webAudioService!.recordingDuration;
+      _recordingState = _webRecordingStateToRecordingState(_webAudioService!.recordingState);
+      notifyListeners();
+    }
+  }
+  
+  // WebRecordingState를 RecordingState로 변환
+  RecordingState _webRecordingStateToRecordingState(WebRecordingState webState) {
+    switch (webState) {
+      case WebRecordingState.idle:
+        return RecordingState.idle;
+      case WebRecordingState.recording:
+        return RecordingState.recording;
+      case WebRecordingState.paused:
+        return RecordingState.paused;
+      case WebRecordingState.stopped:
+        return RecordingState.stopped;
+    }
+  }
 
   // 재생 상태
   PlaybackState _playbackState = PlaybackState.idle;
@@ -62,12 +102,26 @@ class AudioService extends ChangeNotifier {
     _recorder.dispose();
     _player.dispose();
     _recordingTimer?.cancel();
+    
+    // 웹 서비스 정리
+    if (_webAudioService != null) {
+      _webAudioService!.removeListener(_onWebServiceStateChanged);
+      _webAudioService!.dispose();
+      _webAudioService = null;
+    }
+    
     super.dispose();
   }
 
   // 마이크 권한 요청
   Future<bool> requestMicrophonePermission() async {
     try {
+      // 웹 환경에서는 다른 방식으로 권한 확인
+      if (kIsWeb) {
+        return await _requestWebMicrophonePermission();
+      }
+      
+      // 모바일 환경에서는 기존 방식 사용
       final status = await Permission.microphone.request();
       return status == PermissionStatus.granted;
     } catch (e) {
@@ -76,31 +130,90 @@ class AudioService extends ChangeNotifier {
     }
   }
 
-  // 녹음 시작
-  Future<bool> startRecording() async {
+  // 웹에서 마이크 권한 요청
+  Future<bool> _requestWebMicrophonePermission() async {
     try {
-      // 권한 확인
-      if (!await requestMicrophonePermission()) {
-        debugPrint('마이크 권한이 필요합니다');
+      debugPrint('웹에서 마이크 권한 요청 시도');
+      
+      // 먼저 mediaDevices API가 사용 가능한지 확인
+      if (html.window.navigator.mediaDevices == null) {
+        debugPrint('MediaDevices API를 사용할 수 없습니다');
         return false;
       }
 
+      // getUserMedia를 통해 마이크 권한 요청
+      final stream = await html.window.navigator.mediaDevices!.getUserMedia({
+        'audio': true,
+        'video': false,
+      });
+      
+      // 스트림을 즉시 중단 (권한 확인 목적)
+      final tracks = stream.getAudioTracks();
+      for (final track in tracks) {
+        track.stop();
+      }
+      
+      debugPrint('웹 마이크 권한 승인됨');
+      return true;
+    } catch (e) {
+      debugPrint('웹 마이크 권한 요청 실패: $e');
+      
+      // 권한이 거부되었거나 다른 오류 발생
+      if (e.toString().contains('NotAllowedError')) {
+        debugPrint('사용자가 마이크 권한을 거부했습니다');
+      } else if (e.toString().contains('NotFoundError')) {
+        debugPrint('마이크 장치를 찾을 수 없습니다');
+      } else if (e.toString().contains('NotSupportedError')) {
+        debugPrint('이 브라우저에서는 마이크를 지원하지 않습니다');
+      }
+      
+      return false;
+    }
+  }
+
+  // 녹음 시작
+  Future<bool> startRecording() async {
+    try {
+      debugPrint('=== 녹음 시작 프로세스 시작 ===');
+      debugPrint('현재 플랫폼: ${kIsWeb ? "웹" : "네이티브"}');
+      
       // 진행 중인 재생 중단
       if (_playbackState != PlaybackState.idle) {
+        debugPrint('기존 재생 중단 중...');
         await _stopPlayback();
       }
 
-      // 녹음 파일 경로 생성
+      // 웹 환경에서는 WebAudioService 사용
+      if (kIsWeb) {
+        debugPrint('웹 오디오 서비스로 녹음 시작...');
+        return await _webService.startRecording();
+      }
+
+      // 네이티브 환경에서는 기존 로직 사용
+      debugPrint('1. 마이크 권한 확인 중...');
+      final hasPermission = await requestMicrophonePermission();
+      if (!hasPermission) {
+        debugPrint('❌ 마이크 권한이 거부되었습니다');
+        return false;
+      }
+      debugPrint('✅ 마이크 권한 승인됨');
+
+      // 녹음기가 사용 가능한지 확인
+      debugPrint('2. 녹음기 상태 확인 중...');
+      final isAvailable = await _recorder.hasPermission();
+      debugPrint('녹음기 권한 상태: $isAvailable');
+
+      debugPrint('3. 네이티브 환경에서 녹음 시작...');
+      // 녹음 파일 경로 생성 (네이티브 환경)
       final audioDir = await _storageService.getAudioDirectory();
       final fileName = '${DateTime.now().millisecondsSinceEpoch}.m4a';
       final filePath = '${audioDir.path}/$fileName';
-
-      // 녹음 설정 (Record 패키지는 기본 설정 사용)
+      debugPrint('녹음 파일 경로: $filePath');
 
       // 녹음 시작
       await _recorder.start(path: filePath);
-
       _currentRecordingPath = filePath;
+
       _recordingState = RecordingState.recording;
       _recordingDuration = Duration.zero;
 
@@ -108,10 +221,11 @@ class AudioService extends ChangeNotifier {
       _startRecordingTimer();
 
       notifyListeners();
-      debugPrint('녹음 시작: $filePath');
+      debugPrint('✅ 네이티브 녹음 시작 성공: $_currentRecordingPath');
       return true;
-    } catch (e) {
-      debugPrint('녹음 시작 실패: $e');
+    } catch (e, stackTrace) {
+      debugPrint('❌ 녹음 시작 실패: $e');
+      debugPrint('스택 트레이스: $stackTrace');
       return false;
     }
   }
@@ -120,6 +234,10 @@ class AudioService extends ChangeNotifier {
   Future<bool> pauseRecording() async {
     try {
       if (_recordingState != RecordingState.recording) return false;
+
+      if (kIsWeb) {
+        return await _webService.pauseRecording();
+      }
 
       await _recorder.pause();
       _recordingState = RecordingState.paused;
@@ -139,6 +257,10 @@ class AudioService extends ChangeNotifier {
     try {
       if (_recordingState != RecordingState.paused) return false;
 
+      if (kIsWeb) {
+        return await _webService.resumeRecording();
+      }
+
       await _recorder.resume();
       _recordingState = RecordingState.recording;
       _startRecordingTimer();
@@ -155,26 +277,73 @@ class AudioService extends ChangeNotifier {
   // 녹음 정지 및 저장
   Future<FileModel?> stopRecording(String noteId, {String? customName}) async {
     try {
-      if (_recordingState == RecordingState.idle) return null;
+      debugPrint('=== 녹음 정지 프로세스 시작 ===');
+      if (_recordingState == RecordingState.idle) {
+        debugPrint('❌ 녹음이 진행 중이 아닙니다');
+        return null;
+      }
 
+      if (kIsWeb) {
+        debugPrint('웹 환경에서 녹음 정지...');
+        final recordingBlobUrl = await _webService.stopRecording();
+        
+        if (recordingBlobUrl == null) {
+          debugPrint('❌ 웹 녹음 데이터를 가져올 수 없습니다');
+          return null;
+        }
+
+        // 웹에서는 Blob URL을 파일 경로로 사용
+        final now = DateTime.now();
+        final fileName = customName ?? '웹 녹음 ${now.month}/${now.day} ${now.hour}:${now.minute.toString().padLeft(2, '0')}';
+        
+        final audioFile = FileModel(
+          id: _uuid.v4(),
+          noteId: noteId,
+          type: FileType.audio,
+          name: fileName,
+          content: '',
+          filePath: recordingBlobUrl, // 웹에서는 blob URL
+          createdAt: now,
+          updatedAt: now,
+          metadata: {
+            'duration': _recordingDuration.inSeconds.toDouble(),
+            'fileSize': 0, // 웹에서는 크기 계산이 어려움
+            'sampleRate': 44100,
+            'bitRate': 128000,
+            'platform': 'web',
+          },
+        );
+
+        // 상태 초기화는 웹 서비스에서 처리됨
+        debugPrint('✅ 웹 녹음 완료: ${audioFile.name}, 길이: ${_recordingDuration.inSeconds}초');
+        return audioFile;
+      }
+
+      // 네이티브 환경에서의 처리
+      debugPrint('1. 네이티브 녹음 정지 중...');
       final recordingPath = await _recorder.stop();
       _stopRecordingTimer();
 
+      debugPrint('녹음 정지 결과 - 경로: $recordingPath');
+      debugPrint('현재 녹음 경로: $_currentRecordingPath');
+
       if (recordingPath == null || _currentRecordingPath == null) {
-        debugPrint('녹음 파일을 찾을 수 없습니다');
+        debugPrint('❌ 녹음 파일을 찾을 수 없습니다');
         return null;
       }
 
       // 파일 크기 확인
       final file = File(recordingPath);
       if (!await file.exists()) {
-        debugPrint('녹음 파일이 존재하지 않습니다');
+        debugPrint('❌ 녹음 파일이 존재하지 않습니다: $recordingPath');
         return null;
       }
 
       final fileSize = await file.length();
+      debugPrint('파일 크기: $fileSize bytes');
+      
       if (fileSize == 0) {
-        debugPrint('녹음 파일이 비어있습니다');
+        debugPrint('❌ 녹음 파일이 비어있습니다');
         await file.delete();
         return null;
       }
@@ -197,6 +366,7 @@ class AudioService extends ChangeNotifier {
           'fileSize': fileSize,
           'sampleRate': 44100,
           'bitRate': 128000,
+          'platform': 'native',
         },
       );
 
@@ -205,10 +375,11 @@ class AudioService extends ChangeNotifier {
       _currentRecordingPath = null;
 
       notifyListeners();
-      debugPrint('녹음 완료: ${audioFile.name}, 길이: ${_recordingDuration.inSeconds}초');
+      debugPrint('✅ 네이티브 녹음 완료: ${audioFile.name}, 길이: ${_recordingDuration.inSeconds}초');
       return audioFile;
-    } catch (e) {
-      debugPrint('녹음 정지 실패: $e');
+    } catch (e, stackTrace) {
+      debugPrint('❌ 녹음 정지 실패: $e');
+      debugPrint('스택 트레이스: $stackTrace');
       await _stopRecording();
       return null;
     }
@@ -245,14 +416,19 @@ class AudioService extends ChangeNotifier {
         return false;
       }
 
-      final file = File(audioFile.filePath!);
-      if (!await file.exists()) {
-        debugPrint('오디오 파일을 찾을 수 없습니다: ${audioFile.filePath}');
-        return false;
+      // 웹 환경에서의 Blob URL 재생
+      if (kIsWeb && audioFile.filePath!.startsWith('blob:')) {
+        debugPrint('웹 환경에서 Blob URL 재생: ${audioFile.filePath}');
+        await _player.play(UrlSource(audioFile.filePath!));
+      } else {
+        // 네이티브 환경에서의 파일 재생
+        final file = File(audioFile.filePath!);
+        if (!await file.exists()) {
+          debugPrint('오디오 파일을 찾을 수 없습니다: ${audioFile.filePath}');
+          return false;
+        }
+        await _player.play(DeviceFileSource(audioFile.filePath!));
       }
-
-      // 재생 시작
-      await _player.play(DeviceFileSource(audioFile.filePath!));
 
       _currentPlayingFileId = audioFile.id;
       _playbackState = PlaybackState.playing;

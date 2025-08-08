@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
+import 'package:file_picker/file_picker.dart' as file_picker;
+import 'dart:typed_data';
 import 'dart:io';
 import '../providers/note_provider.dart';
 import '../models/note_model.dart';
@@ -9,6 +12,9 @@ import '../widgets/empty_state_widget.dart';
 import '../widgets/drawing_canvas.dart';
 import '../widgets/upgrade_dialog.dart';
 import '../config/app_config.dart';
+import 'text_editor_screen.dart';
+import 'pdf_to_image_screen.dart';
+import 'image_viewer_screen.dart';
 
 class WriterScreen extends StatefulWidget {
   const WriterScreen({super.key});
@@ -17,536 +23,428 @@ class WriterScreen extends StatefulWidget {
   State<WriterScreen> createState() => _WriterScreenState();
 }
 
-class _WriterScreenState extends State<WriterScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-  }
-  
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
+class _WriterScreenState extends State<WriterScreen> {
   
   @override
   Widget build(BuildContext context) {
     return Consumer<NoteProvider>(
       builder: (context, noteProvider, child) {
-        // 선택된 노트가 있는지 확인
-        if (noteProvider.selectedNote == null) {
-          return const EmptyStateWidget(
-            icon: Icons.folder_open,
-            title: '리튼을 선택하세요',
-            subtitle: '홈 탭에서 리튼을 선택하거나\n새로 생성해주세요',
-          );
-        }
-        
-        final note = noteProvider.selectedNote!;
-        
         return Scaffold(
-          body: Column(
-            children: [
-              // 선택된 노트 정보
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
-                  border: Border(
-                    bottom: BorderSide(
-                      color: Theme.of(context).dividerColor,
-                      width: 0.5,
-                    ),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      note.title,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (note.description.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        note.description,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              
-              // 탭 바
-              TabBar(
-                controller: _tabController,
-                tabs: const [
-                  Tab(
-                    icon: Icon(Icons.text_fields),
-                    text: '텍스트',
-                  ),
-                  Tab(
-                    icon: Icon(Icons.draw),
-                    text: '필기',
-                  ),
-                  Tab(
-                    icon: Icon(Icons.image),
-                    text: '파일',
-                  ),
-                ],
-              ),
-              
-              // 탭 내용
-              Expanded(
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildTextTab(note),
-                    _buildHandwritingTab(note),
-                    _buildFileTab(note),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          body: _buildBody(noteProvider),
+          floatingActionButton: noteProvider.selectedNote != null
+              ? _buildFloatingActionButtons(noteProvider)
+              : null,
         );
       },
     );
   }
-  
-  // 텍스트 탭 내용
-  Widget _buildTextTab(note) {
-    final textFiles = note.files.where((file) => file.type.name == 'text').toList();
+
+  // UI 본문 구성
+  Widget _buildBody(NoteProvider noteProvider) {
+    final selectedNote = noteProvider.selectedNote;
     
-    return textFiles.isEmpty
-        ? EmptyStateWidget(
-            icon: Icons.text_fields,
-            title: '텍스트 파일이 없습니다',
-            subtitle: '새 텍스트를 작성해보세요',
-            actionText: '텍스트 추가',
-            onActionPressed: _addTextFile,
-          )
-        : Column(
+    // 선택된 노트가 없는 경우
+    if (selectedNote == null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.folder_outlined, size: 64, color: Colors.grey[400]),
+            SizedBox(height: 16),
+            Text(
+              '먼저 홈 탭에서\n리튼을 생성해주세요',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 텍스트와 PDF 파일 목록 가져오기
+    final textFiles = selectedNote.files.where((file) => file.type == FileType.text).toList();
+    final pdfFiles = selectedNote.files.where((file) => file.type == FileType.handwriting || file.type == FileType.convertedImage).toList();
+    
+    // 파일이 없는 경우
+    if (textFiles.isEmpty && pdfFiles.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.edit_outlined, size: 64, color: Colors.grey[400]),
+            SizedBox(height: 16),
+            Text(
+              '작성된 파일이 없습니다\n아래 버튼으로 새 파일을 만들어보세요',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+            ),
+            SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.add, color: Colors.blue, size: 20),
+                Text(' 텍스트', style: TextStyle(color: Colors.blue)),
+                SizedBox(width: 20),
+                Icon(Icons.picture_as_pdf, color: Colors.red, size: 20),
+                Text(' PDF', style: TextStyle(color: Colors.red)),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 파일 목록 표시
+    return Column(
+      children: [
+        // 헤더
+        Container(
+          padding: EdgeInsets.all(16),
+          child: Row(
             children: [
-              // 기존 텍스트 파일 목록
+              Icon(Icons.edit_note, color: Colors.green),
+              SizedBox(width: 8),
+              Text(
+                '작성된 파일 (${textFiles.length + pdfFiles.length}개)',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+        // 파일 목록
+        Expanded(
+          child: ListView(
+            children: [
+              // 텍스트 파일들
               if (textFiles.isNotEmpty) ...[
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: textFiles.length,
-                    itemBuilder: (context, index) {
-                      final file = textFiles[index];
-                      return Card(
-                        child: ListTile(
-                          leading: const CircleAvatar(
-                            backgroundColor: Colors.blue,
-                            child: Icon(Icons.text_fields, color: Colors.white),
-                          ),
-                          title: Text(file.name),
-                          subtitle: Text(
-                            '${file.content.length} 자 • ${_formatDate(file.updatedAt)}',
-                          ),
-                          trailing: PopupMenuButton<String>(
-                            onSelected: (value) {
-                              if (value == 'edit') {
-                                _editTextFile(file.id);
-                              } else if (value == 'delete') {
-                                _deleteFile(file.id);
-                              }
-                            },
-                            itemBuilder: (context) => [
-                              const PopupMenuItem(
-                                value: 'edit',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.edit),
-                                    SizedBox(width: 8),
-                                    Text('편집'),
-                                  ],
-                                ),
-                              ),
-                              const PopupMenuItem(
-                                value: 'delete',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.delete, color: Colors.red),
-                                    SizedBox(width: 8),
-                                    Text('삭제', style: TextStyle(color: Colors.red)),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          onTap: () => _editTextFile(file.id),
-                        ),
-                      );
-                    },
-                  ),
-                ),
+                _buildSectionHeader('텍스트 문서', Icons.text_fields, Colors.blue),
+                ...textFiles.map((file) => _buildTextFileItem(file)),
+                SizedBox(height: 16),
               ],
-              
-              // 추가 버튼
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: Consumer<SubscriptionService>(
-                    builder: (context, subscriptionService, child) {
-                      final canAddText = subscriptionService.canUseFeature('unlimited_files') ||
-                          note.getFileCount(FileType.text) < AppConfig.maxTextFilesPerNoteForFree;
-                      
-                      return FilledButton.icon(
-                        onPressed: canAddText ? _addTextFile : () => _showUpgradeDialog('텍스트'),
-                        icon: const Icon(Icons.add),
-                        label: const Text('텍스트 추가'),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ],
-          );
-  }
-  
-  // 필기 탭 내용
-  Widget _buildHandwritingTab(note) {
-    final handwritingFiles = note.files.where((file) => file.type.name == 'handwriting').toList();
-    
-    return handwritingFiles.isEmpty
-        ? EmptyStateWidget(
-            icon: Icons.draw,
-            title: '필기 파일이 없습니다',
-            subtitle: '새 필기를 시작해보세요',
-            actionText: '필기 추가',
-            onActionPressed: _addHandwritingFile,
-          )
-        : Column(
-            children: [
-              // 기존 필기 파일 목록
-              if (handwritingFiles.isNotEmpty) ...[
-                Expanded(
-                  child: GridView.builder(
-                    padding: const EdgeInsets.all(16),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 8,
-                      mainAxisSpacing: 8,
-                      childAspectRatio: 0.8,
-                    ),
-                    itemCount: handwritingFiles.length,
-                    itemBuilder: (context, index) {
-                      final file = handwritingFiles[index];
-                      return Card(
-                        child: InkWell(
-                          onTap: () => _editHandwritingFile(file.id),
-                          child: Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Column(
-                              children: [
-                                Expanded(
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey[100],
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: file.filePath != null 
-                                      ? ClipRRect(
-                                          borderRadius: BorderRadius.circular(8),
-                                          child: Image.file(
-                                            File(file.filePath!),
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (context, error, stackTrace) {
-                                              return const Center(
-                                                child: Icon(
-                                                  Icons.broken_image,
-                                                  size: 48,
-                                                  color: Colors.grey,
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                        )
-                                      : const Center(
-                                          child: Icon(
-                                            Icons.gesture,
-                                            size: 48,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  file.name,
-                                  style: const TextStyle(fontWeight: FontWeight.w600),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Text(
-                                  _formatDate(file.updatedAt),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
+              // PDF/필기 파일들
+              if (pdfFiles.isNotEmpty) ...[
+                _buildSectionHeader('PDF 및 필기', Icons.picture_as_pdf, Colors.red),
+                ...pdfFiles.map((file) => _buildPdfFileItem(file)),
               ],
-              
-              // 추가 버튼
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: Consumer<SubscriptionService>(
-                    builder: (context, subscriptionService, child) {
-                      final canAddHandwriting = subscriptionService.canUseFeature('unlimited_files') ||
-                          note.getFileCount(FileType.handwriting) < AppConfig.maxHandwritingFilesPerNoteForFree;
-                      
-                      return FilledButton.icon(
-                        onPressed: canAddHandwriting ? _addHandwritingFile : () => _showUpgradeDialog('필기'),
-                        icon: const Icon(Icons.add),
-                        label: const Text('필기 추가'),
-                      );
-                    },
-                  ),
-                ),
-              ),
             ],
-          );
-  }
-  
-  // 파일 탭 내용
-  Widget _buildFileTab(note) {
-    return const EmptyStateWidget(
-      icon: Icons.upload_file,
-      title: '파일 변환 기능',
-      subtitle: 'PDF, DOC, PPT 파일을\n이미지로 변환하여 주석 추가\n(곧 지원 예정)',
+          ),
+        ),
+      ],
     );
   }
-  
-  void _addTextFile() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('텍스트 에디터는 곧 구현될 예정입니다'),
-        behavior: SnackBarBehavior.floating,
+
+  // Floating Action Buttons
+  Widget _buildFloatingActionButtons(NoteProvider noteProvider) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        FloatingActionButton.extended(
+          heroTag: "pdf",
+          onPressed: () => _addPdfFile(noteProvider),
+          backgroundColor: Colors.red,
+          icon: Icon(Icons.picture_as_pdf, color: Colors.white),
+          label: Text('+PDF', style: TextStyle(color: Colors.white)),
+        ),
+        SizedBox(height: 12),
+        FloatingActionButton.extended(
+          heroTag: "text",
+          onPressed: () => _addTextFile(noteProvider),
+          backgroundColor: Colors.blue,
+          icon: Icon(Icons.text_fields, color: Colors.white),
+          label: Text('+텍스트', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    );
+  }
+
+  // 섹션 헤더
+  Widget _buildSectionHeader(String title, IconData icon, Color color) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 20),
+          SizedBox(width: 8),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          Expanded(
+            child: Container(
+              height: 1,
+              margin: EdgeInsets.only(left: 12),
+              color: color.withOpacity(0.3),
+            ),
+          ),
+        ],
       ),
     );
   }
-  
-  void _editTextFile(String fileId) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('텍스트 편집 기능은 곧 구현될 예정입니다'),
-        behavior: SnackBarBehavior.floating,
+
+  // 텍스트 파일 아이템
+  Widget _buildTextFileItem(FileModel file) {
+    return Card(
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: Colors.blue,
+          child: Icon(Icons.text_fields, color: Colors.white),
+        ),
+        title: Text(
+          file.name,
+          style: TextStyle(fontWeight: FontWeight.w500),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${file.content.length} 자',
+              style: TextStyle(fontSize: 12),
+            ),
+            Text(
+              '생성: ${_formatDateTime(file.createdAt)}',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: Icon(Icons.edit, color: Colors.blue),
+              onPressed: () => _editTextFile(file),
+            ),
+            IconButton(
+              icon: Icon(Icons.delete_outline, color: Colors.red),
+              onPressed: () => _deleteTextFile(file),
+            ),
+          ],
+        ),
+        onTap: () => _editTextFile(file),
       ),
     );
   }
-  
-  Future<void> _addHandwritingFile() async {
-    final noteProvider = Provider.of<NoteProvider>(context, listen: false);
-    final note = noteProvider.selectedNote;
+
+  // PDF 파일 아이템
+  Widget _buildPdfFileItem(FileModel file) {
+    return Card(
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: Colors.red,
+          child: Icon(Icons.picture_as_pdf, color: Colors.white),
+        ),
+        title: Text(
+          file.name,
+          style: TextStyle(fontWeight: FontWeight.w500),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              file.type == FileType.handwriting ? 'PDF 필기' : '변환된 이미지',
+              style: TextStyle(fontSize: 12),
+            ),
+            Text(
+              '생성: ${_formatDateTime(file.createdAt)}',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: Icon(Icons.visibility, color: Colors.green),
+              onPressed: () => _viewPdfFile(file),
+            ),
+            IconButton(
+              icon: Icon(Icons.delete_outline, color: Colors.red),
+              onPressed: () => _deletePdfFile(file),
+            ),
+          ],
+        ),
+        onTap: () => _viewPdfFile(file),
+      ),
+    );
+  }
+
+  // 텍스트 파일 추가
+  Future<void> _addTextFile(NoteProvider noteProvider) async {
+    final note = noteProvider.selectedNote!;
     
-    if (note == null) return;
-
-    // 무료 버전 제한 확인
-    if (note.getFileCount(FileType.handwriting) >= AppConfig.maxHandwritingFilesPerNoteForFree) {
-      _showUpgradeDialog('필기');
-      return;
-    }
-
-    // 그리기 화면으로 이동
-    final result = await Navigator.of(context).push<FileModel>(
+    // 텍스트 에디터로 이동
+    final result = await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => DrawingScreen(noteId: note.id),
+        builder: (context) => TextEditorScreen(noteId: note.id),
       ),
     );
-
-    // 새 필기 파일이 생성되면 노트에 추가
-    if (result != null) {
-      final success = await noteProvider.addFileToNote(note.id, result);
-      if (success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('필기가 저장되었습니다: ${result.name}'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('필기 저장에 실패했습니다'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
-  }
-  
-  Future<void> _editHandwritingFile(String fileId) async {
-    final noteProvider = Provider.of<NoteProvider>(context, listen: false);
-    final note = noteProvider.selectedNote;
     
-    if (note == null) return;
-
-    // 파일 찾기
-    final file = note.files.firstWhere(
-      (f) => f.id == fileId,
-      orElse: () => throw Exception('파일을 찾을 수 없습니다'),
-    );
-
-    if (file.filePath == null) {
+    if (result == true) {
+      // 파일이 추가되면 UI 새로고침
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('파일 경로를 찾을 수 없습니다'),
+        SnackBar(
+          content: Text('텍스트 파일이 저장되었습니다'),
           behavior: SnackBarBehavior.floating,
         ),
       );
-      return;
     }
+  }
 
-    // 이미지 뷰어 또는 편집 옵션 표시
-    showModalBottomSheet(
+  // PDF 파일 추가
+  Future<void> _addPdfFile(NoteProvider noteProvider) async {
+    try {
+      file_picker.FilePickerResult? result = await file_picker.FilePicker.platform.pickFiles(
+        type: file_picker.FileType.custom,
+        allowedExtensions: ['pdf'],
+        allowMultiple: false,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        
+        if (kIsWeb) {
+          // 웹에서는 bytes 사용
+          if (file.bytes != null) {
+            await _processPdfFile(file.bytes!, file.name, noteProvider);
+          }
+        } else {
+          // 네이티브에서는 path 사용
+          if (file.path != null) {
+            final fileBytes = await File(file.path!).readAsBytes();
+            await _processPdfFile(fileBytes, file.name, noteProvider);
+          }
+        }
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('PDF 파일을 불러오는 중 오류가 발생했습니다: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // PDF 파일 처리
+  Future<void> _processPdfFile(Uint8List fileBytes, String fileName, NoteProvider noteProvider) async {
+    showDialog(
       context: context,
-      builder: (context) => SafeArea(
-        child: Column(
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.visibility),
-              title: const Text('보기'),
-              onTap: () {
-                Navigator.of(context).pop();
-                _viewHandwritingFile(file);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.edit),
-              title: const Text('주석 추가'),
-              onTap: () async {
-                Navigator.of(context).pop();
-                await _addAnnotationToFile(file);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete, color: Colors.red),
-              title: const Text('삭제', style: TextStyle(color: Colors.red)),
-              onTap: () {
-                Navigator.of(context).pop();
-                _deleteHandwritingFile(fileId);
-              },
-            ),
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('PDF를 이미지로 변환 중...'),
           ],
         ),
       ),
     );
-  }
 
-  void _viewHandwritingFile(FileModel file) {
-    if (file.filePath == null) return;
-
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => Scaffold(
-          appBar: AppBar(
-            title: Text(file.name),
-            backgroundColor: Colors.black,
-            foregroundColor: Colors.white,
-          ),
-          backgroundColor: Colors.black,
-          body: Center(
-            child: InteractiveViewer(
-              child: Image.file(
-                File(file.filePath!),
-                errorBuilder: (context, error, stackTrace) {
-                  return const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.broken_image,
-                          size: 64,
-                          color: Colors.white54,
-                        ),
-                        SizedBox(height: 16),
-                        Text(
-                          '이미지를 불러올 수 없습니다',
-                          style: TextStyle(color: Colors.white54),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
+    try {
+      // PDF를 이미지로 변환하는 화면으로 이동
+      Navigator.of(context).pop(); // 로딩 다이얼로그 닫기
+      
+      final result = await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => PdfToImageScreen(
+            pdfBytes: fileBytes,
+            fileName: fileName,
+            noteId: noteProvider.selectedNote!.id,
           ),
         ),
-      ),
-    );
-  }
-
-  Future<void> _addAnnotationToFile(FileModel file) async {
-    final noteProvider = Provider.of<NoteProvider>(context, listen: false);
-    final note = noteProvider.selectedNote;
-    
-    if (note == null || file.filePath == null) return;
-
-    // 주석 추가 화면으로 이동
-    final result = await Navigator.of(context).push<FileModel>(
-      MaterialPageRoute(
-        builder: (context) => DrawingScreen(
-          noteId: note.id,
-          existingImagePath: file.filePath!,
-        ),
-      ),
-    );
-
-    // 새 주석 파일이 생성되면 노트에 추가
-    if (result != null) {
-      final success = await noteProvider.addFileToNote(note.id, result);
-      if (success && mounted) {
+      );
+      
+      if (result == true) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('주석이 추가되었습니다: ${result.name}'),
+            content: Text('PDF가 이미지로 변환되어 저장되었습니다'),
             behavior: SnackBarBehavior.floating,
           ),
         );
       }
+    } catch (e) {
+      Navigator.of(context).pop(); // 로딩 다이얼로그 닫기
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('PDF 변환 중 오류가 발생했습니다: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
-  Future<void> _deleteHandwritingFile(String fileId) async {
+  // 텍스트 파일 편집
+  void _editTextFile(FileModel file) async {
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => TextEditorScreen(
+          noteId: file.noteId,
+          existingFile: file,
+        ),
+      ),
+    );
+    
+    if (result == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('텍스트 파일이 저장되었습니다'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  // PDF 파일 보기
+  void _viewPdfFile(FileModel file) {
+    if (file.filePath == null) return;
+    
+    if (kIsWeb) {
+      // 웹에서는 Blob URL로 표시
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => ImageViewerScreen(
+            imageUrl: file.filePath!,
+            fileName: file.name,
+            isWeb: true,
+          ),
+        ),
+      );
+    } else {
+      // 네이티브에서는 파일 경로로 표시
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => ImageViewerScreen(
+            imagePath: file.filePath!,
+            fileName: file.name,
+            isWeb: false,
+          ),
+        ),
+      );
+    }
+  }
+
+  // 텍스트 파일 삭제
+  void _deleteTextFile(FileModel file) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('필기 삭제'),
-        content: const Text('이 필기를 삭제하시겠습니까?'),
+        title: Text('텍스트 파일 삭제'),
+        content: Text('\'${file.name}\'을(를) 삭제하시겠습니까?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('취소'),
+            child: Text('취소'),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('삭제'),
+            child: Text('삭제', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -554,64 +452,68 @@ class _WriterScreenState extends State<WriterScreen>
 
     if (confirmed == true) {
       final noteProvider = Provider.of<NoteProvider>(context, listen: false);
-      final note = noteProvider.selectedNote;
+      final success = await noteProvider.removeFileFromNote(file.noteId, file.id);
       
-      if (note != null) {
-        // 파일 찾기
-        final file = note.files.firstWhere((f) => f.id == fileId);
-        
-        // 그리기 서비스에서 파일 삭제
-        if (file.filePath != null) {
-          await Provider.of<DrawingService>(context, listen: false)
-              .deleteDrawingFile(fileId, file.filePath!);
-        }
-
-        // 노트에서 파일 제거
-        final success = await noteProvider.removeFileFromNote(note.id, fileId);
-        if (success && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('필기가 삭제되었습니다'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('\'${file.name}\'이(가) 삭제되었습니다'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     }
   }
-  
-  void _deleteFile(String fileId) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('파일 삭제 기능은 곧 구현될 예정입니다'),
-        behavior: SnackBarBehavior.floating,
+
+  // PDF 파일 삭제
+  void _deletePdfFile(FileModel file) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('PDF 파일 삭제'),
+        content: Text('\'${file.name}\'을(를) 삭제하시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text('삭제', style: TextStyle(color: Colors.red)),
+          ),
+        ],
       ),
     );
-  }
-  
-  void _showUpgradeDialog(String fileType) {
-    UpgradeDialog.show(
-      context,
-      featureName: '무제한 $fileType 파일',
-      specificBenefits: [
-        '무제한 $fileType 파일 추가',
-        '광고 완전 제거',
-        '클라우드 동기화',
-        '우선 고객 지원',
-      ],
-    );
-  }
-  
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
-    
-    if (difference.inDays == 0) {
-      return '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-    } else if (difference.inDays == 1) {
-      return '어제';
-    } else {
-      return '${date.month}/${date.day}';
+
+    if (confirmed == true) {
+      final noteProvider = Provider.of<NoteProvider>(context, listen: false);
+      
+      // 파일 삭제
+      if (file.filePath != null) {
+        if (!kIsWeb) {
+          try {
+            await File(file.filePath!).delete();
+          } catch (e) {
+            debugPrint('파일 삭제 실패: $e');
+          }
+        }
+      }
+      
+      final success = await noteProvider.removeFileFromNote(file.noteId, file.id);
+      
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('\'${file.name}\'이(가) 삭제되었습니다'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
+  }
+
+  // 날짜 포맷팅
+  String _formatDateTime(DateTime dateTime) {
+    return '${dateTime.month}/${dateTime.day} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 }
