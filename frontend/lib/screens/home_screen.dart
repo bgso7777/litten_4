@@ -11,7 +11,9 @@ import '../widgets/upgrade_dialog.dart';
 import '../config/app_config.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final VoidCallback? onNavigateToRecorder;
+  
+  const HomeScreen({super.key, this.onNavigateToRecorder});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -75,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: TextField(
         controller: _searchController,
         decoration: InputDecoration(
-          hintText: '노트 검색...',
+          hintText: '리튼 검색...',
           prefixIcon: const Icon(Icons.search),
           suffixIcon: _searchQuery.isNotEmpty
               ? IconButton(
@@ -122,7 +124,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return EmptyStateWidget(
         icon: Icons.search_off,
         title: '검색 결과가 없습니다',
-        subtitle: '"$_searchQuery"와 일치하는 노트를 찾을 수 없습니다',
+        subtitle: '"$_searchQuery"와 일치하는 리튼을 찾을 수 없습니다',
         actionText: '검색어 지우기',
         onActionPressed: () {
           _searchController.clear();
@@ -180,9 +182,9 @@ class _HomeScreenState extends State<HomeScreen> {
               Row(
                 children: [
                   Expanded(child: _buildStatItem('리튼', '${stats['totalNotes']}', '${AppConfig.maxNotesForFree}', subscriptionService.isFreePlan)),
-                  Expanded(child: _buildStatItem('오디오', '${stats['totalAudioFiles']}', '∞', false)),
-                  Expanded(child: _buildStatItem('텍스트', '${stats['totalTextFiles']}', '∞', false)),
-                  Expanded(child: _buildStatItem('필기', '${stats['totalHandwritingFiles']}', '∞', false)),
+                  Expanded(child: _buildStatItem('오디오', '${stats['totalAudioFiles']}', subscriptionService.isFreePlan ? '${AppConfig.maxNotesForFree * AppConfig.maxAudioFilesPerNoteForFree}' : '∞', subscriptionService.isFreePlan)),
+                  Expanded(child: _buildStatItem('텍스트', '${stats['totalTextFiles']}', subscriptionService.isFreePlan ? '${AppConfig.maxNotesForFree * AppConfig.maxTextFilesPerNoteForFree}' : '∞', subscriptionService.isFreePlan)),
+                  Expanded(child: _buildStatItem('필기', '${stats['totalHandwritingFiles']}', subscriptionService.isFreePlan ? '${AppConfig.maxNotesForFree * AppConfig.maxHandwritingFilesPerNoteForFree}' : '∞', subscriptionService.isFreePlan)),
                 ],
               ),
             ],
@@ -271,6 +273,7 @@ class _HomeScreenState extends State<HomeScreen> {
               note: notes[index],
               onTap: () => _onNoteSelected(notes[index]),
               onDelete: () => _deleteNote(notes[index].id),
+              onEdit: (newTitle, newDescription) => _editNote(notes[index], newTitle, newDescription),
             ),
           );
         },
@@ -305,6 +308,11 @@ class _HomeScreenState extends State<HomeScreen> {
       // 노트가 생성되면 새로고침
       if (mounted) {
         await noteProvider.refresh();
+        
+        // 듣기 탭으로 이동
+        if (widget.onNavigateToRecorder != null) {
+          widget.onNavigateToRecorder!();
+        }
       }
     }
   }
@@ -322,6 +330,11 @@ class _HomeScreenState extends State<HomeScreen> {
         behavior: SnackBarBehavior.floating,
       ),
     );
+    
+    // 듣기 탭으로 이동
+    if (widget.onNavigateToRecorder != null) {
+      widget.onNavigateToRecorder!();
+    }
   }
   
   // 노트 삭제
@@ -329,8 +342,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('노트 삭제'),
-        content: const Text('이 노트를 삭제하시겠습니까?\n모든 파일이 함께 삭제됩니다.'),
+        title: const Text('리튼 삭제'),
+        content: const Text('이 리튼을 삭제하시겠습니까?\n모든 파일이 함께 삭제됩니다.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -352,7 +365,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (success && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('노트가 삭제되었습니다'),
+              content: Text('리튼이 삭제되었습니다'),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -361,12 +374,43 @@ class _HomeScreenState extends State<HomeScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('노트 삭제 실패: $e'),
+              content: Text('리튼 삭제 실패: $e'),
               backgroundColor: Colors.red,
               behavior: SnackBarBehavior.floating,
             ),
           );
         }
+      }
+    }
+  }
+  
+  // 리튼 편집
+  Future<void> _editNote(NoteModel note, String newTitle, String newDescription) async {
+    try {
+      final updatedNote = note.copyWith(
+        title: newTitle,
+        description: newDescription,
+      );
+      
+      final success = await context.read<NoteProvider>().updateNote(updatedNote);
+      
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('\'${newTitle}\'로 수정되었습니다'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('리튼 편집 실패: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     }
   }

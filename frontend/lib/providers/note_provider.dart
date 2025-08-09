@@ -46,8 +46,8 @@ class NoteProvider extends ChangeNotifier {
         await _createSampleNotes();
       }
       
-      // 최신 순으로 정렬
-      _notes.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      // 생성 시간 순으로 정렬 (최신 순서)
+      _notes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     } catch (e) {
       debugPrint('노트 로드 실패: $e');
     } finally {
@@ -59,21 +59,28 @@ class NoteProvider extends ChangeNotifier {
   // 샘플 노트 생성
   Future<void> _createSampleNotes() async {
     try {
-      // 첫 번째 샘플 노트: 강의-화-교양
+      // 첫 번째 샘플 노트: 강의-화-교양(샘플) (가장 위에 표시되도록 제일 먼저 생성)
       await createNote(
-        '강의-화-교양', 
+        '강의-화-교양(샘플)', 
         description: '교양 강의 노트 공간입니다. 음성 녹음과 필기를 함께 활용해보세요.',
         bypassLimit: true,
       );
       
-      // 두 번째 샘플 노트: 회의-주간
+      // 두 번째 샘플 노트: 회의-주간(샘플)
       await createNote(
-        '회의-주간', 
+        '회의-주간(샘플)', 
         description: '주간 회의 내용을 기록하는 공간입니다. 중요한 결정사항을 놓치지 마세요.',
         bypassLimit: true,
       );
       
-      debugPrint('샘플 노트 생성 완료: 강의-화-교양, 회의-주간');
+      // 세 번째 샘플 노트: 기본리튼 (가장 아래에 표시)
+      await createNote(
+        '기본리튼', 
+        description: '정해지지 않은 듣기, 쓰기는 여기에 저장됩니다.',
+        bypassLimit: true,
+      );
+      
+      debugPrint('샘플 노트 생성 완료: 강의-화-교양(샘플), 회의-주간(샘플), 기본리튼');
     } catch (e) {
       debugPrint('샘플 노트 생성 실패: $e');
     }
@@ -127,8 +134,8 @@ class NoteProvider extends ChangeNotifier {
       }
       _notes[index] = noteWithUpdatedTime;
       
-      // 최신 순으로 정렬
-      _notes.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      // 생성 시간 순으로 정렬 (최신 순서)
+      _notes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       
       if (_selectedNote?.id == updatedNote.id) {
         _selectedNote = noteWithUpdatedTime;
@@ -180,9 +187,72 @@ class NoteProvider extends ChangeNotifier {
     notifyListeners();
   }
   
-  // 노트에 파일 추가
-  Future<bool> addFileToNote(String noteId, FileModel file) async {
-    final noteIndex = _notes.indexWhere((note) => note.id == noteId);
+  // "기본리튼" 강제 생성 (항상 새로운 "기본리튼"에 파일 저장)
+  Future<NoteModel?> createDefaultNoteIfNeeded() async {
+    debugPrint('=== createDefaultNoteIfNeeded 호출됨 ===');
+    debugPrint('현재 선택된 노트: ${_selectedNote?.title ?? "없음"}');
+    debugPrint('전체 노트 개수: ${_notes.length}');
+    debugPrint('강제로 "기본리튼" 생성 모드');
+    
+    try {
+      // "기본리튼"이 이미 있는지 확인
+      NoteModel? existingDefaultNote;
+      try {
+        existingDefaultNote = _notes.firstWhere(
+          (note) => note.title.startsWith('기본리튼'),
+        );
+        debugPrint('기존 "기본리튼" 발견: ${existingDefaultNote.title}');
+      } catch (e) {
+        debugPrint('기존 "기본리튼" 없음');
+        existingDefaultNote = null;
+      }
+      
+      if (existingDefaultNote != null) {
+        // 기존 "기본리튼"을 선택
+        debugPrint('기존 "기본리튼" 선택: ${existingDefaultNote.id}');
+        selectNote(existingDefaultNote.id);
+        return existingDefaultNote;
+      }
+      
+      // "기본리튼" 새로 생성
+      debugPrint('"기본리튼" 새로 생성 시작...');
+      final defaultNote = await createNote(
+        '기본리튼',
+        description: '정해지지 않은 듣기, 쓰기는 여기에 저장됩니다.',
+        bypassLimit: false, // 일반적인 제한 적용
+      );
+      
+      if (defaultNote != null) {
+        selectNote(defaultNote.id);
+        debugPrint('"기본리튼" 자동 생성 완료: ${defaultNote.id}');
+        debugPrint('선택된 노트 확인: ${_selectedNote?.title}');
+        // UI 강제 업데이트
+        notifyListeners();
+      } else {
+        debugPrint('"기본리튼" 생성 실패: createNote가 null 반환');
+      }
+      
+      return defaultNote;
+    } catch (e) {
+      debugPrint('"기본리튼" 생성 실패: $e');
+      return null;
+    }
+  }
+  
+  // 노트에 파일 추가 (선택된 노트가 없으면 자동으로 "기본리튼" 생성)
+  Future<bool> addFileToNote(String? noteId, FileModel file) async {
+    String? targetNoteId = noteId;
+    
+    // noteId가 없거나 해당 노트를 찾을 수 없는 경우 자동으로 "기본리튼" 생성
+    if (targetNoteId == null || _notes.indexWhere((note) => note.id == targetNoteId) == -1) {
+      final defaultNote = await createDefaultNoteIfNeeded();
+      if (defaultNote == null) {
+        throw Exception('파일을 추가할 리튼을 생성할 수 없습니다.');
+      }
+      targetNoteId = defaultNote.id;
+    }
+    
+    final noteIndex = _notes.indexWhere((note) => note.id == targetNoteId);
     if (noteIndex == -1) return false;
     
     final note = _notes[noteIndex];

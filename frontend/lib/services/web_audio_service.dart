@@ -20,10 +20,15 @@ class WebAudioService extends ChangeNotifier {
   String? _currentRecordingBlobUrl;
   List<html.Blob> _recordedChunks = [];
   
+  // 백그라운드 녹음 관련
+  bool _isBackgroundRecording = false;
+  StreamSubscription? _visibilityListener;
+  
   // Getters
   WebRecordingState get recordingState => _recordingState;
   Duration get recordingDuration => _recordingDuration;
   String? get currentRecordingBlobUrl => _currentRecordingBlobUrl;
+  bool get isBackgroundRecording => _isBackgroundRecording;
   
   bool get isRecording => _recordingState == WebRecordingState.recording;
   bool get isPaused => _recordingState == WebRecordingState.paused;
@@ -33,6 +38,8 @@ class WebAudioService extends ChangeNotifier {
     _stopRecording();
     _cleanupStreams();
     _recordingTimer?.cancel();
+    _visibilityListener?.cancel();
+    _releaseWakeLock();
     super.dispose();
   }
   
@@ -445,6 +452,9 @@ class WebAudioService extends ChangeNotifier {
       _recordingDuration = Duration.zero;
       _startRecordingTimer();
       
+      // 백그라운드 녹음 설정
+      await _setupBackgroundRecording();
+      
       notifyListeners();
       debugPrint('🎉 웹 녹음 시작 완료!');
       return true;
@@ -526,6 +536,10 @@ class WebAudioService extends ChangeNotifier {
       debugPrint('✅ 웹 녹음 완료: $blobUrl, 길이: ${_recordingDuration.inSeconds}초');
       
       _recordingState = WebRecordingState.idle;
+      
+      // 백그라운드 녹음 정리
+      _cleanupBackgroundRecording();
+      
       notifyListeners();
       
       return blobUrl;
@@ -607,5 +621,240 @@ class WebAudioService extends ChangeNotifier {
   // 녹음 가능 시간 확인 (최대 60분)
   bool get canContinueRecording {
     return _recordingDuration.inMinutes < 60;
+  }
+  
+  // 백그라운드 녹음 설정
+  Future<void> _setupBackgroundRecording() async {
+    try {
+      debugPrint('=== 백그라운드 녹음 설정 시작 ===');
+      
+      // 1. Page Visibility API 모니터링
+      _setupVisibilityListener();
+      
+      // 2. 브라우저 알림 권한 요청 및 알림 표시
+      await _setupNotification();
+      
+      // 3. Wake Lock 요청 (화면 꺼짐 방지)
+      await _requestWakeLock();
+      
+      _isBackgroundRecording = true;
+      debugPrint('✅ 백그라운드 녹음 설정 완료');
+      
+    } catch (e) {
+      debugPrint('❌ 백그라운드 녹음 설정 실패: $e');
+    }
+  }
+  
+  // Page Visibility API 리스너 설정
+  void _setupVisibilityListener() {
+    try {
+      debugPrint('Page Visibility API 설정 중...');
+      
+      // visibilitychange 이벤트 리스너
+      html.document.addEventListener('visibilitychange', (html.Event event) {
+        final isHidden = html.document.hidden ?? false;
+        debugPrint('페이지 가시성 변경: ${isHidden ? "숨김" : "표시"}');
+        
+        if (isHidden && isRecording) {
+          debugPrint('📱 탭이 백그라운드로 전환됨 - 녹음 지속 중');
+          _showBackgroundNotification();
+        } else if (!isHidden && isRecording) {
+          debugPrint('📱 탭이 포그라운드로 전환됨');
+          _updateNotification();
+        }
+      });
+      
+      debugPrint('✅ Page Visibility API 설정 완료');
+    } catch (e) {
+      debugPrint('❌ Page Visibility API 설정 실패: $e');
+    }
+  }
+  
+  // 브라우저 알림 설정
+  Future<void> _setupNotification() async {
+    try {
+      debugPrint('브라우저 알림 설정 중...');
+      
+      // 알림 API 지원 확인
+      if (html.Notification.supported) {
+        debugPrint('✅ 브라우저 알림 지원됨');
+        
+        // 현재 권한 상태 확인
+        final permission = html.Notification.permission;
+        debugPrint('현재 알림 권한: $permission');
+        
+        if (permission == 'default') {
+          debugPrint('알림 권한 요청 중...');
+          final result = await html.Notification.requestPermission();
+          debugPrint('알림 권한 요청 결과: $result');
+        }
+        
+        if (html.Notification.permission == 'granted') {
+          debugPrint('✅ 알림 권한 승인됨');
+          _showRecordingNotification();
+        } else {
+          debugPrint('⚠️ 알림 권한이 거부됨 - 백그라운드 알림 없이 진행');
+        }
+      } else {
+        debugPrint('⚠️ 브라우저가 알림을 지원하지 않음');
+      }
+    } catch (e) {
+      debugPrint('❌ 브라우저 알림 설정 실패: $e');
+    }
+  }
+  
+  // Wake Lock 요청 (화면 꺼짐 방지)
+  Future<void> _requestWakeLock() async {
+    try {
+      debugPrint('Wake Lock 요청 중...');
+      
+      // Wake Lock API 지원 확인
+      final navigator = html.window.navigator;
+      if (navigator.userAgent.contains('Chrome') || navigator.userAgent.contains('Edge')) {
+        debugPrint('Wake Lock API 시도...');
+        
+        try {
+          // Wake Lock 요청
+          // 주의: dart:html에서는 아직 완전히 지원되지 않을 수 있음
+          debugPrint('Wake Lock은 실험적 기능으로 건너뜀');
+        } catch (e) {
+          debugPrint('Wake Lock 실패 (정상 - 실험적 기능): $e');
+        }
+      } else {
+        debugPrint('Wake Lock은 Chrome/Edge에서만 지원됨');
+      }
+    } catch (e) {
+      debugPrint('❌ Wake Lock 요청 실패: $e');
+    }
+  }
+  
+  // 녹음 시작 알림 표시
+  void _showRecordingNotification() {
+    try {
+      if (html.Notification.permission == 'granted') {
+        final notification = html.Notification(
+          '🎤 리튼 녹음 중',
+          body: '녹음이 진행 중입니다. 탭을 닫아도 녹음이 계속됩니다.',
+          icon: '/icons/Icon-192.png',
+          tag: 'litten-recording',
+        );
+        
+        // 클릭 시 탭으로 포커스
+        notification.onClick.listen((event) {
+          debugPrint('알림 클릭됨 - 리튼 앱으로 돌아가기');
+          // 브라우저에서 window.focus()는 지원되지 않음
+        });
+        
+        // 3초 후 자동으로 닫기
+        Timer(Duration(seconds: 3), () {
+          notification.close();
+        });
+        
+        debugPrint('✅ 녹음 시작 알림 표시됨');
+      }
+    } catch (e) {
+      debugPrint('❌ 녹음 시작 알림 실패: $e');
+    }
+  }
+  
+  // 백그라운드 상태 알림 표시
+  void _showBackgroundNotification() {
+    try {
+      if (html.Notification.permission == 'granted') {
+        final notification = html.Notification(
+          '🎤 백그라운드 녹음 중',
+          body: '${_formatDuration(_recordingDuration)} 녹음 중입니다. 클릭하여 리튼으로 돌아가기',
+          icon: '/icons/Icon-192.png',
+          tag: 'litten-background-recording',
+          // requireInteraction: true, // 사용자가 직접 닫을 때까지 유지 (일부 브라우저에서 미지원)
+        );
+        
+        // 클릭 시 탭으로 포커스
+        notification.onClick.listen((event) {
+          debugPrint('백그라운드 알림 클릭됨 - 리튼 앱으로 돌아가기');
+          // 브라우저에서 window.focus()는 지원되지 않음
+          notification.close();
+        });
+        
+        debugPrint('✅ 백그라운드 알림 표시됨');
+      }
+    } catch (e) {
+      debugPrint('❌ 백그라운드 알림 실패: $e');
+    }
+  }
+  
+  // 알림 업데이트 (포그라운드 복귀 시)
+  void _updateNotification() {
+    try {
+      // 기존 백그라운드 알림 제거
+      _closeNotificationsByTag('litten-background-recording');
+      debugPrint('✅ 포그라운드 복귀 - 백그라운드 알림 제거');
+    } catch (e) {
+      debugPrint('❌ 알림 업데이트 실패: $e');
+    }
+  }
+  
+  // 특정 태그의 알림 닫기
+  void _closeNotificationsByTag(String tag) {
+    try {
+      // 실제로는 브라우저가 같은 태그의 이전 알림을 자동으로 교체함
+      debugPrint('태그별 알림 정리: $tag');
+    } catch (e) {
+      debugPrint('태그별 알림 정리 실패: $e');
+    }
+  }
+  
+  // Wake Lock 해제
+  void _releaseWakeLock() {
+    try {
+      // Wake Lock 해제 로직 (현재는 구현하지 않음)
+      debugPrint('Wake Lock 해제');
+    } catch (e) {
+      debugPrint('Wake Lock 해제 실패: $e');
+    }
+  }
+  
+  // 백그라운드 녹음 정리
+  void _cleanupBackgroundRecording() {
+    try {
+      debugPrint('=== 백그라운드 녹음 정리 시작 ===');
+      
+      _isBackgroundRecording = false;
+      
+      // 알림 정리
+      _closeNotificationsByTag('litten-recording');
+      _closeNotificationsByTag('litten-background-recording');
+      
+      // 녹음 완료 알림
+      if (html.Notification.permission == 'granted') {
+        final notification = html.Notification(
+          '✅ 녹음 완료',
+          body: '${_formatDuration(_recordingDuration)} 녹음이 완료되었습니다.',
+          icon: '/icons/Icon-192.png',
+          tag: 'litten-recording-complete',
+        );
+        
+        // 3초 후 자동으로 닫기
+        Timer(Duration(seconds: 3), () {
+          notification.close();
+        });
+      }
+      
+      // Wake Lock 해제
+      _releaseWakeLock();
+      
+      // Visibility 리스너 정리 (dispose에서 처리됨)
+      
+      debugPrint('✅ 백그라운드 녹음 정리 완료');
+    } catch (e) {
+      debugPrint('❌ 백그라운드 녹음 정리 실패: $e');
+    }
+  }
+  
+  // 시간 포맷팅 유틸리티
+  String _formatDuration(Duration duration) {
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 }

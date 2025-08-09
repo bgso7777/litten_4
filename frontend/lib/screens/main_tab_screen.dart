@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 import '../providers/note_provider.dart';
 import '../config/app_config.dart';
 import '../services/preferences_service.dart';
+import '../services/audio_service.dart';
 import '../widgets/ad_banner_widget.dart';
+import '../models/note_model.dart';
 import 'home_screen.dart';
 import 'recorder_screen.dart';
 import 'recorder_screen_simple.dart';
@@ -20,18 +23,22 @@ class MainTabScreen extends StatefulWidget {
 class _MainTabScreenState extends State<MainTabScreen> {
   int _currentIndex = 0;
   String _subscriptionType = 'free';
+  bool _isTextEditorVisible = false;
+  String? _editingNoteId;
+  FileModel? _editingFile;
   
-  final List<Widget> _screens = [
-    const HomeScreen(),
-    const RecorderScreen(),
-    const WriterScreen(),
-    const SettingsScreen(),
-  ];
+  late final List<Widget> _screens;
   
   @override
   void initState() {
     super.initState();
     _loadSubscriptionType();
+    _screens = [
+      HomeScreen(onNavigateToRecorder: _navigateToRecorder),
+      const RecorderScreen(),
+      WriterScreen(onShowTextEditor: showTextEditor),
+      const SettingsScreen(),
+    ];
   }
   
   Future<void> _loadSubscriptionType() async {
@@ -43,25 +50,42 @@ class _MainTabScreenState extends State<MainTabScreen> {
   
   @override
   Widget build(BuildContext context) {
-    return Consumer<NoteProvider>(
-      builder: (context, noteProvider, child) {
+    return Consumer2<NoteProvider, AudioService>(
+      builder: (context, noteProvider, audioService, child) {
         return Scaffold(
           appBar: AppBar(
-            title: _buildAppBarTitle(noteProvider),
+            title: _buildAppBarTitle(noteProvider, audioService),
             centerTitle: true,
             actions: _buildAppBarActions(noteProvider),
             elevation: 0,
           ),
-          body: Column(
+          body: Stack(
             children: [
-              // 무료 사용자만 광고 배너 표시
-              if (_subscriptionType == 'free' && AppConfig.showAdsForFreeUsers)
-                const AdBannerWidget(),
-              
-              // 메인 콘텐츠
-              Expanded(
-                child: _screens[_currentIndex],
+              // 기본 화면
+              Column(
+                children: [
+                  // 무료 사용자만 광고 배너 표시
+                  if (_subscriptionType == 'free' && AppConfig.showAdsForFreeUsers)
+                    const AdBannerWidget(),
+                  
+                  // 메인 콘텐츠
+                  Expanded(
+                    child: _screens[_currentIndex],
+                  ),
+                ],
               ),
+              
+              // 텍스트 에디터 오버레이
+              if (_isTextEditorVisible)
+                Positioned(
+                  top: (_subscriptionType == 'free' && AppConfig.showAdsForFreeUsers) 
+                      ? AppConfig.adBannerHeight.toDouble() 
+                      : 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 80, // 탭 바 높이만큼 여백
+                  child: _buildTextEditor(),
+                ),
             ],
           ),
           bottomNavigationBar: BottomNavigationBar(
@@ -97,7 +121,7 @@ class _MainTabScreenState extends State<MainTabScreen> {
   }
   
   // 앱바 제목 생성
-  Widget _buildAppBarTitle(NoteProvider noteProvider) {
+  Widget _buildAppBarTitle(NoteProvider noteProvider, AudioService audioService) {
     if (noteProvider.selectedNote != null) {
       return Text(
         noteProvider.selectedNote!.title,
@@ -105,18 +129,25 @@ class _MainTabScreenState extends State<MainTabScreen> {
       );
     }
     
+    String titleText;
     switch (_currentIndex) {
       case 0:
-        return const Text('리튼');
+        titleText = '리튼';
+        break;
       case 1:
-        return const Text('듣기');
+        titleText = '듣기';
+        break;
       case 2:
-        return const Text('쓰기');
+        titleText = '쓰기';
+        break;
       case 3:
-        return const Text('설정');
+        titleText = '설정';
+        break;
       default:
-        return const Text('리튼');
+        titleText = '리튼';
     }
+    
+    return Text(titleText);
   }
   
   // 앱바 액션 버튼들 생성
@@ -219,5 +250,206 @@ class _MainTabScreenState extends State<MainTabScreen> {
         ],
       ),
     );
+  }
+  
+  // 텍스트 에디터 빌드
+  Widget _buildTextEditor() {
+    return Material(
+      elevation: 8,
+      child: Container(
+        color: Colors.white,
+        child: Column(
+          children: [
+            // 텍스트 에디터 헤더
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                border: Border(bottom: BorderSide(color: Colors.grey[300]!)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.text_fields, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _editingFile != null ? '텍스트 편집' : '새 텍스트 파일',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: _closeTextEditor,
+                  ),
+                ],
+              ),
+            ),
+            
+            // 파일명 입력
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: TextField(
+                controller: _fileNameController,
+                decoration: const InputDecoration(
+                  labelText: '파일명',
+                  border: OutlineInputBorder(),
+                  hintText: '파일명을 입력하세요',
+                ),
+                maxLines: 1,
+              ),
+            ),
+            
+            // 텍스트 에디터
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                child: TextField(
+                  controller: _textEditingController,
+                  decoration: const InputDecoration(
+                    hintText: '내용을 입력하세요...',
+                    border: OutlineInputBorder(),
+                    alignLabelWithHint: true,
+                  ),
+                  maxLines: null,
+                  expands: true,
+                  textAlignVertical: TextAlignVertical.top,
+                ),
+              ),
+            ),
+            
+            // 저장 버튼
+            Container(
+              padding: const EdgeInsets.all(16),
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _saveTextFile,
+                child: Text(
+                  _editingFile != null ? '수정 완료' : '저장',
+                  style: const TextStyle(fontSize: 16),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  // 텍스트 컨트롤러들
+  final TextEditingController _textEditingController = TextEditingController();
+  final TextEditingController _fileNameController = TextEditingController();
+  
+  // 텍스트 에디터 열기
+  void showTextEditor({String? noteId, FileModel? existingFile}) {
+    _editingNoteId = noteId;
+    _editingFile = existingFile;
+    
+    if (existingFile != null) {
+      _textEditingController.text = existingFile.content;
+      _fileNameController.text = existingFile.name;
+    } else {
+      _textEditingController.clear();
+      _fileNameController.text = '새 텍스트 파일';
+    }
+    
+    setState(() {
+      _isTextEditorVisible = true;
+    });
+  }
+  
+  // 텍스트 에디터 닫기
+  void _closeTextEditor() {
+    setState(() {
+      _isTextEditorVisible = false;
+    });
+    _textEditingController.clear();
+    _fileNameController.clear();
+    _editingNoteId = null;
+    _editingFile = null;
+  }
+  
+  // 텍스트 파일 저장
+  Future<void> _saveTextFile() async {
+    final fileName = _fileNameController.text.trim();
+    final content = _textEditingController.text.trim();
+    
+    if (fileName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('파일명을 입력해주세요'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    
+    try {
+      final noteProvider = context.read<NoteProvider>();
+      String targetNoteId = _editingNoteId ?? '';
+      
+      // 노트가 선택되지 않은 경우 기본리튼 생성
+      if (targetNoteId.isEmpty || noteProvider.getNoteById(targetNoteId) == null) {
+        final defaultNote = await noteProvider.createDefaultNoteIfNeeded();
+        if (defaultNote != null) {
+          targetNoteId = defaultNote.id;
+        }
+      }
+      
+      if (_editingFile != null) {
+        // 기존 파일 수정
+        final updatedFile = _editingFile!.copyWith(
+          name: fileName,
+          content: content,
+          updatedAt: DateTime.now(),
+        );
+        await noteProvider.updateFileInNote(targetNoteId, updatedFile);
+      } else {
+        // 새 파일 생성
+        final newFile = FileModel(
+          id: const Uuid().v4(),
+          name: fileName,
+          type: FileType.text,
+          content: content,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+          noteId: targetNoteId,
+        );
+        await noteProvider.addFileToNote(targetNoteId, newFile);
+      }
+      
+      _closeTextEditor();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$fileName이(가) 저장되었습니다'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('저장 실패: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+  
+  // 듣기 탭으로 이동
+  void _navigateToRecorder() {
+    setState(() {
+      _currentIndex = 1; // 듣기 탭 인덱스
+    });
+  }
+  
+  @override
+  void dispose() {
+    _textEditingController.dispose();
+    _fileNameController.dispose();
+    super.dispose();
   }
 }

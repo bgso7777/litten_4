@@ -94,6 +94,7 @@ class AudioService extends ChangeNotifier {
   bool get isRecording => _recordingState == RecordingState.recording;
   bool get isPaused => _recordingState == RecordingState.paused;
   bool get isPlaying => _playbackState == PlaybackState.playing;
+  bool get isBackgroundRecording => kIsWeb && _webAudioService?.isBackgroundRecording == true;
 
   @override
   void dispose() {

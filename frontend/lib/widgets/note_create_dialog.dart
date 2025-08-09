@@ -137,6 +137,9 @@ class _NoteCreateDialogState extends State<NoteCreateDialog> {
       final note = await noteProvider.createNote(title, description: description);
       
       if (note != null && mounted) {
+        // 생성된 리튼을 자동으로 선택
+        noteProvider.selectNote(note.id);
+        
         Navigator.of(context).pop(true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

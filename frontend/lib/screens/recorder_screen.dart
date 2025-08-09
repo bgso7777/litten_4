@@ -58,10 +58,10 @@ class _RecorderScreenState extends State<RecorderScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.folder_outlined, size: 64, color: Colors.grey[400]),
+            Icon(Icons.mic_outlined, size: 64, color: Colors.grey[400]),
             SizedBox(height: 16),
             Text(
-              '먼저 홈 탭에서\n리튼을 생성해주세요',
+              '선택된 리튼이 없습니다\n+듣기 버튼을 눌러 녹음을 시작하면\n"기본리튼"이 자동으로 생성됩니다',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 16, color: Colors.grey[600]),
             ),
@@ -300,24 +300,6 @@ class _RecorderScreenState extends State<RecorderScreen> {
     debugPrint('_startRecording 호출됨');
     
     try {
-      // 선택된 노트가 없으면 첫 번째 노트를 선택
-      if (noteProvider.selectedNote == null && noteProvider.notes.isNotEmpty) {
-        noteProvider.selectNote(noteProvider.notes.first.id);
-      }
-      
-      // 노트가 없으면 에러 메시지 표시
-      if (noteProvider.selectedNote == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('먼저 홈 탭에서 리튼을 생성해주세요'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-        return;
-      }
-
       // 녹음 상태에 따라 동작 결정
       if (audioService.recordingState == RecordingState.idle) {
         // 새 녹음 시작
@@ -333,17 +315,62 @@ class _RecorderScreenState extends State<RecorderScreen> {
           _showPermissionErrorDialog();
         }
       } else if (audioService.recordingState == RecordingState.recording) {
+        debugPrint('=== 녹음 정지 및 저장 프로세스 시작 ===');
+        debugPrint('현재 선택된 노트: ${noteProvider.selectedNote?.title ?? "없음"}');
+        
+        // 항상 "기본리튼" 생성하고 그곳에 저장
+        debugPrint('강제로 "기본리튼" 생성하여 저장');
+        final defaultNote = await noteProvider.createDefaultNoteIfNeeded();
+        if (defaultNote == null) {
+          debugPrint('리튼 자동 생성 실패');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('리튼 생성에 실패했습니다'),
+                behavior: SnackBarBehavior.floating,
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+          return;
+        } else {
+          debugPrint('기본리튼 생성 성공: ${defaultNote.title}');
+        }
+        
         // 녹음 정지 및 저장
         final note = noteProvider.selectedNote!;
+        debugPrint('파일을 저장할 노트: ${note.title} (${note.id})');
         final audioFile = await audioService.stopRecording(note.id);
         
         if (audioFile != null) {
+          debugPrint('오디오 파일 생성됨: ${audioFile.name}');
           final success = await noteProvider.addFileToNote(note.id, audioFile);
+          debugPrint('파일 저장 결과: $success');
+          
           if (success && mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('녹음이 저장되었습니다: ${audioFile.name}'),
                 behavior: SnackBarBehavior.floating,
+              ),
+            );
+          } else if (mounted && !success) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('녹음 저장에 실패했습니다'),
+                behavior: SnackBarBehavior.floating,
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        } else {
+          debugPrint('오디오 파일 생성 실패');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('녹음 파일 생성에 실패했습니다'),
+                behavior: SnackBarBehavior.floating,
+                backgroundColor: Colors.red,
               ),
             );
           }

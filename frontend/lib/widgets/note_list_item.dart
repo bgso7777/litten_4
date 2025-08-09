@@ -6,12 +6,14 @@ class NoteListItem extends StatelessWidget {
   final NoteModel note;
   final VoidCallback? onTap;
   final VoidCallback? onDelete;
+  final Function(String, String)? onEdit;
   
   const NoteListItem({
     super.key,
     required this.note,
     this.onTap,
     this.onDelete,
+    this.onEdit,
   });
 
   @override
@@ -56,8 +58,9 @@ class NoteListItem extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-            ],
-            const SizedBox(height: 4),
+              const SizedBox(height: 4),
+            ] else
+              const SizedBox(height: 4),
             Text(
               _formatDate(note.updatedAt),
               style: TextStyle(
@@ -69,11 +72,25 @@ class NoteListItem extends StatelessWidget {
         ),
         trailing: PopupMenuButton<String>(
           onSelected: (value) {
-            if (value == 'delete' && onDelete != null) {
+            if (value == 'edit' && onEdit != null) {
+              _showEditDialog(context);
+            } else if (value == 'delete' && onDelete != null) {
               onDelete!();
             }
           },
           itemBuilder: (context) => [
+            // 기본리튼이 아닌 경우만 편집 메뉴 표시
+            if (note.title != '기본리튼' && onEdit != null)
+              const PopupMenuItem(
+                value: 'edit',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit, color: Colors.blue),
+                    SizedBox(width: 8),
+                    Text('편집'),
+                  ],
+                ),
+              ),
             const PopupMenuItem(
               value: 'delete',
               child: Row(
@@ -184,5 +201,62 @@ class NoteListItem extends StatelessWidget {
       // 그 이상
       return '${date.month}/${date.day}';
     }
+  }
+  
+  // 편집 다이얼로그 표시
+  void _showEditDialog(BuildContext context) {
+    final titleController = TextEditingController(text: note.title);
+    final descriptionController = TextEditingController(text: note.description);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('리튼 편집'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              decoration: const InputDecoration(
+                labelText: '제목',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 1,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: descriptionController,
+              decoration: const InputDecoration(
+                labelText: '설명',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+              minLines: 1,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final newTitle = titleController.text.trim();
+              final newDescription = descriptionController.text.trim();
+              
+              if (newTitle.isNotEmpty && onEdit != null) {
+                onEdit!(newTitle, newDescription);
+              }
+              Navigator.of(context).pop();
+            },
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    ).then((_) {
+      titleController.dispose();
+      descriptionController.dispose();
+    });
   }
 }
