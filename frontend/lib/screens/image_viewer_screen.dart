@@ -352,12 +352,14 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   // 이미지 유효성 검사
   Future<void> _validateImage() async {
     try {
+      print('이미지 유효성 검사 시작');
       if (widget.isWeb) {
+        print('웹 모드 - 이미지 URL: ${widget.imageUrl?.substring(0, 50)}...');
         if (widget.imageUrl == null || widget.imageUrl!.isEmpty) {
           throw Exception('웹 이미지 URL이 제공되지 않았습니다');
         }
-        if (!widget.imageUrl!.startsWith('blob:') && !widget.imageUrl!.startsWith('http')) {
-          throw Exception('유효하지 않은 이미지 URL입니다');
+        if (!widget.imageUrl!.startsWith('blob:') && !widget.imageUrl!.startsWith('http') && !widget.imageUrl!.startsWith('data:')) {
+          throw Exception('유효하지 않은 이미지 URL입니다: ${widget.imageUrl!.substring(0, 20)}');
         }
       } else {
         if (widget.imagePath == null || widget.imagePath!.isEmpty) {
@@ -370,11 +372,13 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
       }
       
       // 유효성 검사 통과
+      print('이미지 유효성 검사 통과');
       setState(() {
         _isLoading = false;
       });
       
     } catch (e) {
+      print('이미지 유효성 검사 실패: $e');
       setState(() {
         _errorMessage = e.toString();
         _isLoading = false;
